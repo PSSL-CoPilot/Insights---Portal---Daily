@@ -1,0 +1,190 @@
+/**
+ * Canonical story facts for a month. Every narrative, evidence panel and player scene reads its
+ * figures from here (which reads the workbook backed model), so a number is derived exactly once.
+ */
+import type { AgencySnapshotRow, DataModel, DriverRow, ForecastStateRow, InterventionRow, MonthKey, RepCohortRow, SegmentRow } from "../data/types";
+import { diagnose, type Diagnosis } from "../data/narratives";
+import {
+  AGENCY_GAP_THRESHOLD, assess, channelRows, excessCancels, getSnapshot, kpiById, prevMonth, reasonStats, stateRows,
+  type ChannelRow, type ReasonStat, type Snapshot, type StateRow,
+} from "../data/metrics";
+
+
+export { AGENCY_GAP_THRESHOLD };
+/** A channel inside a state is an outlier when its cancel rate exceeds the state's other channels by this much. */
+const CHANNEL_OUTLIER_GAP = 0.08;
+
+export interface ChannelFact {
+  channel: string;
+  rate: number | null;
+  sales: number | null;
+  cancels: number | null;
+  outlier: boolean;
+}
+
+export interface StoryFacts {
+  model: DataModel;
+  month: MonthKey;
+  prev: MonthKey | null;
+  d: Diagnosis;
+  port: Snapshot;
+  portPrev: Snapshot | null;
+  /** Size of the cancellation move relative to normal month to month noise. */
+  multiple: number | null;
+  /** Internal reference cancel rate (workbook baseline view when present, else prior months average). */
+  baselineRate: number | null;
+  /** State that explains the exception (null when the month is in line with trend). */
+  focus: StateRow | null;
+  focusSnap: Snapshot | null;
+  focusPrev: Snapshot | null;
+  /** Cancellation growth range across the remaining states. */
+  otherGrowth: [number, number] | null;
+  otherRate: [number, number] | null;
+  focusChannels: ChannelFact[];
+  outlierChannels: ChannelFact[];
+  normalChannelRate: [number, number] | null;
+  portfolioChannels: ChannelRow[];
+  /** True when the agency, attribution and forecast sheets describe this month and focus state. */
+  hasStory: boolean;
+  weakAgencies: AgencySnapshotRow[];
+  steadyAgencies: AgencySnapshotRow[];
+  cohort: RepCohortRow | null;
+  signals: { lowIntent: number | null; promo: number | null; competitor: number | null; failedConfirm: number | null };
+  drivers: Partial<Record<DriverRow["kind"], DriverRow>>;
+  /** Cancellations that move from Customer Miss to Company Miss after journey evidence review. */
+  reclassMoved: number | null;
+  lateDrivers: ReasonStat[];
+  forecast: { month: MonthKey | null; baseline: number | null; prevActual: number | null; actual: number | null; noAction: number | null; intervention: number | null };
+  forecastFocus: ForecastStateRow | null;
+  forecastOthers: [number, number] | null;
+  interventions: Partial<Record<InterventionRow["kind"], InterventionRow>>;
+  contactRisk: { orders: number | null; projected: number | null; protectable: number | null };
+  /** Next month orders in the outlier channels of the focus state: the population the sales quality score runs on. */
+  riskyOrders: { channels: string[]; orders: number | null; projected: number | null; rate: number | null };
+  /** Share of the deteriorating agencies' sales made by Critical band representatives. */
+  criticalRepShare: number | null;
+  /** Delivery risk segmentation (cancellation risk x customer value x ODD x permit / construction readiness). */
+  highValue: { total: number | null; accelerate: SegmentRow | null; resetOdd: SegmentRow | null; handOff: SegmentRow | null; standard: SegmentRow | null };
+}
+
+const cache = new WeakMap<DataModel, Map<MonthKey, StoryFacts>>();
+const range = (xs: (number | null)[]): [number, number] | null => {
+  const v = xs.filter((x): x is number => x !== null);
+  return v.length ? [Math.min(...v), Math.max(...v)] : null;
+};
+const weighted = <T,>(rows: T[], w: (r: T) => number | null, v: (r: T) => number | null) => {
+  let num = 0, den = 0;
+  for (const r of rows) {
+    const a = w(r), b = v(r);
+    if (a !== null && b !== null) {
+      num += a * b;
+      den += a;
+    }
+  }
+  return den ? num / den : null;
+};
+
+export function storyFacts(model: DataModel, month: MonthKey): StoryFacts {
+  let byMonth = cache.get(model);
+  if (!byMonth) cache.set(model, (byMonth = new Map()));
+  const hit = byMonth.get(month);
+  if (hit) return hit;
+
+  const prev = prevMonth(model, month);
+  const d = diagnose(model, month);
+  const port = getSnapshot(model, month, null);
+  const portPrev = prev ? getSnapshot(model, prev, null) : null;
+  const a = assess(model, kpiById("cancels")!, month, null);
+  const st = model.story;
+
+  const focus = d.anomaly && d.hotspot && (d.hotspot.cancelsMoM ?? 0) > 0.15 ? d.hotspot : null;
+  const others = stateRows(model, month).filter((r) => r.state !== focus?.state);
+
+  // Channels inside the focus state (the state × channel cross view is published for the drill month).
+  const sc = focus && month === model.drillMonth ? model.stateChannel.filter((r) => r.state === focus.state) : [];
+  const focusChannels: ChannelFact[] = sc
+    .map((r) => ({ channel: r.channel, rate: r.cancelRate, sales: r.sales, cancels: r.cancels, outlier: false }))
+    .sort((x, y) => (y.rate ?? 0) - (x.rate ?? 0));
+  const rates = focusChannels.map((c) => c.rate).filter((x): x is number => x !== null).sort((x, y) => x - y);
+  const median = rates.length ? rates[Math.floor(rates.length / 2)] : null;
+  focusChannels.forEach((c) => (c.outlier = median !== null && c.rate !== null && c.rate - median >= CHANNEL_OUTLIER_GAP));
+  const outlierChannels = focusChannels.filter((c) => c.outlier);
+
+  const hasStory = !!focus && st.focusState === focus.state && st.month === month;
+  const weakAgencies = hasStory ? st.agencies.filter((x) => (x.gap ?? 0) >= AGENCY_GAP_THRESHOLD).sort((x, y) => (y.gap ?? 0) - (x.gap ?? 0)) : [];
+  const steadyAgencies = hasStory ? st.agencies.filter((x) => (x.gap ?? 0) < AGENCY_GAP_THRESHOLD) : [];
+  const weakNames = new Set(weakAgencies.map((x) => x.agency));
+  const cohort = hasStory
+    ? st.cohorts
+        .filter((c) => weakNames.has(c.agency) && (c.salesShare ?? 0) > 0 && (c.cancelShare ?? 0) > (c.salesShare ?? 0))
+        .sort((x, y) => ((y.cancelShare ?? 0) - (y.salesShare ?? 0)) - ((x.cancelShare ?? 0) - (x.salesShare ?? 0)))[0] ?? null
+    : null;
+
+  const drivers: StoryFacts["drivers"] = {};
+  if (hasStory) for (const r of st.drivers) drivers[r.kind] ??= r;
+  const coRow = hasStory ? st.reclass.find((r) => /company/i.test(r.classification)) : undefined;
+
+  const view = (k: string, m?: MonthKey | null) => st.forecastViews.find((v) => v.kind === k && (m === undefined || v.month === m?.slice(0, 7)))?.rate ?? null;
+  const ex = excessCancels(model, month);
+  const forecastFocus = hasStory ? st.forecastStates.find((r) => r.state === focus!.state) ?? null : null;
+  const interventions: StoryFacts["interventions"] = {};
+  if (hasStory) for (const r of st.interventions) interventions[r.kind] ??= r;
+
+  const f: StoryFacts = {
+    model, month, prev, d, port, portPrev,
+    multiple: a.multiple,
+    baselineRate: view("baseline") ?? ex?.baselineRate ?? null,
+    focus,
+    focusSnap: focus ? getSnapshot(model, month, focus.state) : null,
+    focusPrev: focus && prev ? getSnapshot(model, prev, focus.state) : null,
+    otherGrowth: range(others.map((r) => r.cancelsMoM)),
+    otherRate: range(others.map((r) => r.cancelRate)),
+    focusChannels,
+    outlierChannels,
+    normalChannelRate: range(focusChannels.filter((c) => !c.outlier).map((c) => c.rate)),
+    portfolioChannels: channelRows(model, month).sort((x, y) => (y.contribution ?? -Infinity) - (x.contribution ?? -Infinity)),
+    hasStory,
+    weakAgencies,
+    steadyAgencies,
+    cohort,
+    signals: {
+      lowIntent: weighted(weakAgencies, (x) => x.sales, (x) => x.lowIntent),
+      promo: weighted(weakAgencies, (x) => x.sales, (x) => x.promo),
+      competitor: weighted(weakAgencies, (x) => x.sales, (x) => x.competitor),
+      failedConfirm: weighted(weakAgencies, (x) => x.sales, (x) => x.failedConfirm),
+    },
+    drivers,
+    reclassMoved: coRow?.adjusted != null && coRow.recorded != null ? coRow.adjusted - coRow.recorded : null,
+    lateDrivers: reasonStats(model, month, focus?.state ?? null).filter((r) => r.lateStage && (r.mom ?? 0) > 0.25).sort((x, y) => (y.mom ?? 0) - (x.mom ?? 0)),
+    forecast: hasStory
+      ? { month: st.forecastMonth, baseline: view("baseline"), prevActual: prev ? view("actual", prev) : null, actual: view("actual", month), noAction: view("noAction"), intervention: view("intervention") }
+      : { month: null, baseline: null, prevActual: null, actual: null, noAction: null, intervention: null },
+    forecastFocus,
+    forecastOthers: hasStory ? range(st.forecastStates.filter((r) => !r.isTotal && r.state !== focus!.state).map((r) => r.rate)) : null,
+    interventions,
+    riskyOrders: { channels: [], orders: null, projected: null, rate: null },
+    highValue: { total: null, accelerate: null, resetOdd: null, handOff: null, standard: null },
+    criticalRepShare: null,
+    contactRisk: {
+      orders: hasStory ? st.contactRisk[0]?.value ?? null : null,
+      projected: hasStory ? st.contactRisk[1]?.value ?? null : null,
+      protectable: hasStory ? st.contactRisk[2]?.value ?? null : null,
+    },
+  };
+  if (hasStory) {
+    const rows = st.forecastChannels.filter((r) => !r.isTotal && outlierChannels.some((c) => c.channel === r.channel));
+    const orders = rows.reduce((a, r) => a + (r.sales ?? 0), 0), projected = rows.reduce((a, r) => a + (r.cancels ?? 0), 0);
+    f.riskyOrders = { channels: rows.map((r) => r.channel), orders: rows.length ? orders : null, projected: rows.length ? projected : null, rate: orders ? projected / orders : null };
+    const reps = st.reps.filter((r) => weakNames.has(r.agency));
+    const total = reps.reduce((a, r) => a + (r.sales ?? 0), 0);
+    f.criticalRepShare = total ? reps.filter((r) => /critical/i.test(r.band)).reduce((a, r) => a + (r.sales ?? 0), 0) / total : null;
+    const segs = st.segments.filter((x) => !x.isTotal);
+    const pick = (re: RegExp) => segs.find((x) => re.test(x.action)) ?? null;
+    f.highValue = {
+      total: st.segments.find((x) => x.isTotal)?.orders ?? (segs.length ? segs.reduce((a, x) => a + (x.orders ?? 0), 0) : null),
+      accelerate: pick(/accelerat/i), resetOdd: pick(/reset|escalat/i), handOff: pick(/contact rescue|hand/i), standard: pick(/maintain|monitor/i),
+    };
+  }
+  byMonth.set(month, f);
+  return f;
+}

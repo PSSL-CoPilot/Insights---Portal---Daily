@@ -1,0 +1,8 @@
+node_modules
+.next
+.tools
+*.tsbuildinfo
+next-env.d.ts
+out
+AGENTS.md
+CLAUDE.md
