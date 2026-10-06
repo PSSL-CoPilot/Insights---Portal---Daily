@@ -17,7 +17,7 @@ const SIGNAL_META: Record<SignalRow["id"], { kpi?: string; tone: string; meaning
   noAction: { tone: C.slate, meaning: "No Watchtower warning before the cancellation; these were difficult to anticipate." },
   pending: { kpi: "pending", tone: C.orange, meaning: "Customer contact unresolved: the strongest early warning signal, and one Brightspeed can act on." },
   action: { kpi: "action", tone: C.brand, meaning: "Action required even without technical jeopardy." },
-  jeopardy: { kpi: "jeopardy", tone: C.lilac, meaning: "Technical installation risk: a secondary signal this month." },
+  jeopardy: { kpi: "jeopardy", tone: C.lilac, meaning: "Technical installation risk: a secondary signal this period." },
   bsw: { kpi: "bsw", tone: C.lilac, meaning: "Predictive BSW delay model: remains low, so build readiness is not the driver." },
 };
 const PREV_KEY: Record<string, string> = { noAction: "noActionPct", pending: "pendingPct", action: "actionPct", jeopardy: "jeopardyPct", bsw: "bswPct" };
@@ -75,7 +75,7 @@ export function WatchtowerPage() {
               {strongest && (
                 <p className="text-[15px] leading-relaxed text-ink-2">
                   <strong className="text-ink">{strongest.label}</strong> is the leading signal at <strong className="text-ink">{fmtPct0(strongest.pct)}</strong>
-                  {prev?.[PREV_KEY[strongest.id]] != null && strongest.pct !== null ? <> ({fmtPp(strongest.pct - (prev[PREV_KEY[strongest.id]] as number))} versus {pm ? monthName(pm) : "prior month"})</> : null}.
+                  {prev?.[PREV_KEY[strongest.id]] != null && strongest.pct !== null ? <> ({fmtPp(strongest.pct - (prev[PREV_KEY[strongest.id]] as number))} versus {pm ? monthName(pm) : "previous period"})</> : null}.
                   Customer contact warnings are materially stronger than technical or BSW risk, so most of what was visible in advance was a <em>customer engagement</em> issue that proactive outreach can address.
                 </p>
               )}

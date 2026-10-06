@@ -45,7 +45,7 @@ export function WatchtowerAgencies() {
       <div className="grid gap-4 xl:grid-cols-[minmax(300px,0.8fr)_2fr]">
         <Card className="p-5 sm:p-6">
           <div className="text-[15px] font-semibold">Representatives by Watchtower band</div>
-          <div className="mt-1 text-[12px] text-mute">{fmtInt(active.length)} active partner representatives · Low ≤15%, Watch ≤25%, High ≤40%, Critical above</div>
+          <div className="mt-1 text-[12px] text-mute">{fmtInt(active.length)} active partner representatives · bands on each rep's last 30 days: Low ≤15%, Watch ≤25%, High ≤40%, Critical above</div>
           <div className="mt-4 flex flex-wrap items-center gap-5">
             <Donut
               size={160}
@@ -63,7 +63,7 @@ export function WatchtowerAgencies() {
             </ul>
           </div>
         </Card>
-        <AgencyTable agencies={st.agencies} selected={sel} select={(s) => s.agency && setAgency(s.agency)} title="Agencies against their own history" sub="Cancel rate vs each agency's own January to August history. Select an agency." />
+        <AgencyTable agencies={st.agencies} selected={sel} select={(s) => s.agency && setAgency(s.agency)} title="Agencies against their own history" sub="Cancel rate vs each agency's own historical average. Select an agency." />
       </div>
 
       {a && (

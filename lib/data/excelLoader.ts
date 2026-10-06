@@ -11,7 +11,7 @@ import type { DataModel } from "./types";
 import { buildModel } from "./transformations";
 import { emptyStory } from "./storySheets";
 
-export const WORKBOOK_FILE = "Brightspeed_Cancellation_Data_Daily_Sep_2026.xlsx";
+export const WORKBOOK_FILE = "Brightspeed_Cancellation_Data_Daily_Oct_2026.xlsx";
 
 export function workbookPath(): string {
   return process.env.BRIGHTSPEED_DATA_FILE

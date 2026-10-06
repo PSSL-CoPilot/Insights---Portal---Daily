@@ -22,7 +22,7 @@ The portal is a static site on GitHub Pages. `.github/workflows/deploy.yml` buil
 
 ## Data source
 
-`/data/Brightspeed_Cancellation_Data_Daily_Sep_2026.xlsx` (set `BRIGHTSPEED_DATA_FILE` to use a workbook elsewhere).
+`/data/Brightspeed_Cancellation_Data_Daily_Oct_2026.xlsx` (set `BRIGHTSPEED_DATA_FILE` to use a workbook elsewhere).
 
 | Sheet | Shape | Columns (the header row is detected below any title block) |
 |---|---|---|

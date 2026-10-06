@@ -28,7 +28,7 @@ export function StateRanking({
   const fmt = (v: number | null) => (v === null ? "n/a" : def.unit === "pct" ? fmtPct(v) : fmtInt(v));
   const sorted = rows.map((r) => ({ r, v: r.snapshot[def.key] ?? null })).sort((a, b) => (b.v ?? -1) - (a.v ?? -1));
   if (!sorted.some((x) => x.v !== null)) {
-    return <div className="rounded-xl bg-subtle px-4 py-6 text-center text-sm text-mute">{def.label} is not available by {kind} for this month.</div>;
+    return <div className="rounded-xl border border-line bg-card px-4 py-6 text-center text-sm text-mute">{def.label} is not available by {kind} for this period.</div>;
   }
   const bars: RankedRow[] = sorted.map(({ r, v }) => {
     // Growth measures (sales, installs) are never flagged as a problem focus.
@@ -43,7 +43,7 @@ export function StateRanking({
       ),
       value: v,
       valueLabel: fmt(v),
-      sub: r.cancelsMoM !== null ? `Cancellations ${fmtSignedPct(r.cancelsMoM)} vs prior month` : undefined,
+      sub: r.cancelsMoM !== null ? `Cancellations ${fmtSignedPct(r.cancelsMoM)} vs prior period` : undefined,
       color: isHot ? C.bad : selectedState === r.name ? C.orange : C.lilac,
       emphasis: isHot || selectedState === r.name,
       onClick: onSelect ? () => onSelect(r.name) : undefined,
@@ -68,7 +68,7 @@ export function StateTable({
             <th className="pb-2 font-semibold">Installs</th>
             <th className="pb-2 font-semibold">Cancels</th>
             <th className="pb-2 font-semibold">Cancel rate</th>
-            <th className="pb-2 font-semibold">Growth vs Aug pace</th>
+            <th className="pb-2 font-semibold">Growth vs prior period</th>
             <th className="pb-2 font-semibold">Post ODD</th>
             <th className="pb-2 pr-3 font-semibold">Pending contact</th>
             {onDrill && <th className="pb-2 pr-3" />}

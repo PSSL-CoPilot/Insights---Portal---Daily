@@ -5,7 +5,7 @@
  */
 import type { DataModel, MonthKey } from "./types";
 import {
-  AGENCY_GAP_THRESHOLD, assess, findFocusChannel, findHotspot, getSnapshot, isChannel, kpiById, kpiDelta, nk, prevMonth, reasonStats, scopeName, stateRows, excessCancels,
+  AGENCY_GAP_THRESHOLD, assess, findFocusChannel, findHotspot, getSnapshot, isChannel, kpiById, kpiDelta, nk, normalRate, prevMonth, reasonStats, scopeName, stateRows, excessCancels,
   type ChannelRow, type StateRow, REASON_LABELS,
 } from "./metrics";
 import { fmtInt, fmtPct, fmtPct0, fmtPp, fmtSignedPct, monthLabel, monthName, monthShort, stateSlug } from "../format";
@@ -46,7 +46,9 @@ export function diagnose(model: DataModel, month: MonthKey): Diagnosis {
   const pv = prev ? getSnapshot(model, prev, null) : null;
   const rel = (a: number | null, b: number | null | undefined) => (a !== null && b ? a / b - 1 : null);
   const cancelsDef = kpiById("cancels")!;
-  const anomaly = assess(model, cancelsDef, month, null).anomaly && (kpiDelta(model, cancelsDef, month, null)?.value ?? 0) > 0;
+  // Day-wise: an exception is a cancel rate clearly above its usual level, whatever the change against the previous period.
+  const normal = normalRate(model, null);
+  const anomaly = model.daily ? normal !== null && (cur.cancelRate ?? 0) - normal >= 0.01 : assess(model, cancelsDef, month, null).anomaly && (kpiDelta(model, cancelsDef, month, null)?.value ?? 0) > 0;
 
   const hotspot = findHotspot(model, month);
   const others = stateRows(model, month).filter((r) => r.state !== hotspot?.state).map((r) => r.cancelsMoM).filter((x): x is number => x !== null);
@@ -135,7 +137,7 @@ export function focusInsight(model: DataModel, month: MonthKey, kind: FocusKind)
 
   let text: string;
   if (!pm) text = `${M} is the first month in the dataset; a ranking by change is not yet available.`;
-  else if (!focusState) text = `${label} moved within the normal range in every state in ${M}. No focus state is required this month.`;
+  else if (!focusState) text = `${label} moved within the normal range in every state in ${M}. No focus state is required this period.`;
   else {
     const rest = ranked.slice(1).map((r) => r.growth).filter((x): x is number => x !== null);
     text =
@@ -181,7 +183,7 @@ export function buildInsights(model: DataModel, month: MonthKey): Insight[] {
       id: "cancel-mom",
       severity: d.anomaly ? "critical" : "low",
       metric: { label: "Total cancellations", value: fmtInt(cur.cancels), delta: fmtSignedPct(d.cancelsMoM), tone: d.cancelsMoM > 0 ? "bad" : "good" },
-      title: d.anomaly ? `${M} cancellations increased ${abs(fmtSignedPct(d.cancelsMoM))} vs August pace` : `${M} cancellations are within the normal range (${fmtSignedPct(d.cancelsMoM)})`,
+      title: d.anomaly ? `${M} cancellations increased ${abs(fmtSignedPct(d.cancelsMoM))} vs the previous period` : `${M} cancellations are within the normal range (${fmtSignedPct(d.cancelsMoM)})`,
       insight: d.anomaly
         ? `The movement is well outside the typical monthly change of about ${fmtPct(assess(model, kpiById("cancels")!, month, null).baseline, 0)} observed earlier in the year, while sales moved ${fmtSignedPct(d.salesMoM)}.`
         : `Cancellations are tracking sales growth (${fmtSignedPct(d.salesMoM)}); no intervention is indicated.`,
@@ -359,7 +361,7 @@ export function buildActions(model: DataModel, month: MonthKey): ActionItem[] {
     },
     {
       id: "reschedule", title: "Guided Rebooking for Reschedules", ...own("Customer Care"), priority: P("High", "Medium"), market,
-      population: r("resched"), populationLabel: "Reschedule driven cancellations",
+      population: r("resched"), populationLabel: `Reschedule driven cancellations (${monthName(month)})`,
       impact: "Prevent repeat reschedules from ending in cancellation through guided rebooking and agent follow up on the second request.",
       why: `Customer Requested Reschedule is among the fastest growing Customer Miss reasons in ${where}.`,
       evidence: reasonStats(model, month, scope).filter((x) => x.lateStage).map((x) => `${x.label}: ${fmtInt(x.prevCount)} to ${fmtInt(x.count)} (${fmtSignedPct(x.mom)})`),
@@ -385,7 +387,7 @@ export function buildActions(model: DataModel, month: MonthKey): ActionItem[] {
       : []),
     {
       id: "field", title: "Technician Arrival Confirmation", ...own("Field Operations"), priority: P("High", "Low"), market,
-      population: (r("noAccess") ?? 0) + (r("tech") ?? 0), populationLabel: "No Access and Tech on Job cancellations",
+      population: (r("noAccess") ?? 0) + (r("tech") ?? 0), populationLabel: `No Access and Tech on Job cancellations (${monthName(month)})`,
       impact: "Reduce failed visits and cancellations after dispatch by confirming access and intent on the day of the appointment.",
       why: "No Access / Not Home and Cancelled while Tech on Job both represent cancellations after field effort has been committed.",
       evidence: [`No Access / Not Home ${fmtInt(r("noAccess"))}`, `Cancelled while Tech on Job ${fmtInt(r("tech"))}`, `On Time Install ${fmtPct0(s.onTimePct)}`],
@@ -418,7 +420,7 @@ export function buildActions(model: DataModel, month: MonthKey): ActionItem[] {
 }
 
 /**
- * When the workbook carries the agency and prevention sheets for this month's focus state, the
+ * When the workbook carries the agency and prevention sheets for this period's focus state, the
  * action list follows the prevention plan: sales quality verification replaces the generic channel
  * action, installation readiness replaces the broad network watch, and the confirmation outreach
  * becomes the customer-contact rescue. Saves come straight from the plan.
@@ -455,7 +457,8 @@ function withPreventionPlan(model: DataModel, month: MonthKey, list: ActionItem[
   }
 
   const sales = iv("sales");
-  const weak = st.agencies.filter((a) => (a.gap ?? 0) >= AGENCY_GAP_THRESHOLD).sort((a, b) => (b.gap ?? 0) - (a.gap ?? 0));
+  // Day-wise: the partners named are those that broke from their own history over the last 30 days (one story for every period).
+  const weak = st.agencies.filter((a) => ((model.daily ? model.daily.stable.agencyGap[a.agency] : a.gap) ?? 0) >= AGENCY_GAP_THRESHOLD).sort((a, b) => (b.gap ?? 0) - (a.gap ?? 0));
   if (sales && weak.length) {
     const channels = [...new Set(weak.map((a) => a.channel))];
     const driver = st.drivers.find((x) => x.kind === "sales");
@@ -463,7 +466,9 @@ function withPreventionPlan(model: DataModel, month: MonthKey, list: ActionItem[
     const item: ActionItem = {
       id: "sales-quality", title: "Sales Quality Verification", ...own("Sales Quality Assurance"), priority: "Critical",
       market: `${hot.state}, ${channels.join(" and ")}`,
-      population: weak.reduce((a, x) => a + (x.sales ?? 0), 0), populationLabel: `${monthShort(month)} sales through agencies running above their own history`,
+      ...(model.daily
+        ? { population: st.forecastChannels.filter((r) => !r.isTotal && channels.includes(r.channel)).reduce((a, r) => a + (r.sales ?? 0), 0), populationLabel: `${channels.join(" and ")} orders expected in the next 30 days, to score and verify` }
+        : { population: weak.reduce((a, x) => a + (x.sales ?? 0), 0), populationLabel: `${monthShort(month)} sales through agencies running above their own history` }),
       impact: `${sales.action}. Potential saves: about ${fmtInt(sales.saves)} orders.`,
       why: `${weak.map((a) => a.agency).join(", ")} run ${fmtPp(Math.min(...weak.map((a) => a.gap ?? 0)))} to ${fmtPp(Math.max(...weak.map((a) => a.gap ?? 0)))} above their own history${driver ? `; sales and agency quality is the primary cause of ${fmtInt(driver.cancels)} cancellations (${fmtPct0(driver.share)})` : ""}.`,
       evidence: [
@@ -558,11 +563,11 @@ export function stateStory(model: DataModel, month: MonthKey, scope: string): St
   const cur = getSnapshot(model, month, scope);
   const prev = pm ? getSnapshot(model, pm, scope) : null;
   const port = getSnapshot(model, month, null);
-  const P = pm ? monthName(pm) : "the prior month";
+  const P = pm ? monthName(pm) : "the previous period";
   const rel = (a: number | null, b: number | null | undefined) => (a !== null && b ? a / b - 1 : null);
 
   const cMoM = rel(cur.cancels, prev?.cancels), sMoM = rel(cur.sales, prev?.sales);
-  let change: StoryPoint = { text: `${name} has no prior month comparison available.`, tone: "neutral" };
+  let change: StoryPoint = { text: `${name} has no previous period comparison available.`, tone: "neutral" };
   if (cMoM !== null && sMoM !== null) {
     const bad = cMoM > sMoM + 0.05;
     change = {
@@ -597,7 +602,7 @@ export function stateStory(model: DataModel, month: MonthKey, scope: string): St
     : { text: rs[0] ? `${rs[0].label} is the largest reason (${fmtPct0(rs[0].share)}); no late stage reason is rising sharply.` : "Reason detail is recorded by state rather than by channel.", tone: "neutral" };
 
   const p = cur.pendingPct, b = cur.bswPct, j = cur.jeopardyPct;
-  let seen: StoryPoint = { text: `Watchtower signals for ${name} are not available for this month.`, tone: "neutral" };
+  let seen: StoryPoint = { text: `Watchtower signals for ${name} are not available for this period.`, tone: "neutral" };
   let verdict: StateStory["verdict"] = "insufficient";
   if (p !== null) {
     const tech = (b ?? 0) + (j ?? 0);

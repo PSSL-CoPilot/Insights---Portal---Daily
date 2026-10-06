@@ -11,10 +11,13 @@ export function Sparkline({
   if (pts.length < 2) return <div style={{ width, height }} className="grid place-items-center text-[10px] text-soft">no trend</div>;
   const min = Math.min(...pts.map((p) => p.v));
   const max = Math.max(...pts.map((p) => p.v));
-  const span = max - min || 1;
+  // Keep at least a 40% band around the middle so ordinary day to day variation does not look like a spike.
+  const mid = (max + min) / 2;
+  const span = Math.max(max - min, Math.abs(mid) * 0.4) || 1;
+  const lo = mid - span / 2;
   const pad = 3;
   const x = (i: number) => pad + (i / Math.max(values.length - 1, 1)) * (width - pad * 2);
-  const y = (v: number) => height - pad - ((v - min) / span) * (height - pad * 2);
+  const y = (v: number) => height - pad - ((v - lo) / span) * (height - pad * 2);
   const d = pts.map((p, k) => `${k ? "L" : "M"}${x(p.i).toFixed(1)},${y(p.v).toFixed(1)}`).join(" ");
   const last = pts[pts.length - 1];
   const area = `${d} L${x(last.i).toFixed(1)},${height} L${x(pts[0].i).toFixed(1)},${height} Z`;

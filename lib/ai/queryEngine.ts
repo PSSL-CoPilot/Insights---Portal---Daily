@@ -52,7 +52,6 @@ function dayWindow(model: DataModel, month: MonthKey, idx: number, from: string)
   const a = day(d?.[1]), b = day(d?.[2]);
   if (a && b) return a === b ? a : `${b}~${a}` === month ? month : a; // a range other than the selected one: its first day
   if (a) return a;
-  if (model.baselineMonth?.slice(5, 7) === mon) return model.baselineMonth;
   return month.slice(5, 7) === mon ? month : null;
 }
 
@@ -60,11 +59,10 @@ function dayWindow(model: DataModel, month: MonthKey, idx: number, from: string)
 export function suggestedQuestions(model: DataModel, month: MonthKey): string[] {
   const pm = prevMonth(model, month);
   return [
-    `Why did cancellations increase in ${monthName(month)}?`,
-    `What were the sales and cancels in ${pm ? monthName(pm) : monthName(month)}?`,
-    `Compare cancel rate ${pm ? monthName(pm) : "January"} vs ${monthName(month)}`,
+    "What is driving cancellations in this period?",
+    ...(pm ? ["What were the sales and cancels in the previous period?", "Compare cancel rate this period vs the previous period"] : []),
     "Which channel has the highest cancel rate?",
-    `Break down ${monthName(month)} cancellations by state`,
+    "Break down cancellations by state",
     "Show the Post ODD share trend",
     "What are the key insights?",
     "What should Brightspeed do next?",
@@ -143,8 +141,8 @@ function parse(q: string, model: DataModel, month: MonthKey): Parsed {
     }
   });
   const pm = prevMonth(model, month);
-  if (/last month|previous month|prior month/.test(t) && pm) found.push({ i: t.search(/last month|previous month|prior month/), m: pm });
-  if (/this month|current month|latest month|this week|last 7 days/.test(t)) found.push({ i: t.search(/this month|current month|latest month|this week|last 7 days/), m: month });
+  if (/last month|previous month|prior month|previous period|prior period|last week/.test(t) && pm) found.push({ i: t.search(/last month|previous month|prior month|previous period|prior period|last week/), m: pm });
+  if (/this month|current month|latest month|this week|this period|last 7 days/.test(t)) found.push({ i: t.search(/this month|current month|latest month|this week|this period|last 7 days/), m: month });
   found.sort((a, b) => a.i - b.i);
   let months = [...new Set(found.map((f) => f.m))];
   let since: MonthKey | null = null;
@@ -165,7 +163,7 @@ function parse(q: string, model: DataModel, month: MonthKey): Parsed {
       if (!channels.some((x) => x.toLowerCase().includes(lc))) channels.push(c);
     }
   }
-  months = months.filter((m) => model.months.includes(m) || m === model.baselineMonth || m === model.dayBaseline || m === month);
+  months = months.filter((m) => model.months.includes(m) || m === model.baselineMonth || m === month);
   // "no access cancels": the generic cancellations metric is only kept when the question joins metrics ("sales and cancels")
   if (metrics.length > 1 && !/\band\b|&|,/.test(q.toLowerCase())) metrics.splice(1);
   return { metrics, months, since, states, channels };
@@ -217,7 +215,7 @@ function dataAnswer(question: string, ctx: GenieContext): GenieAnswer | null {
     return {
       intent: "breakdown",
       text: `**${m.label} by ${dimChannel ? "channel" : "state"}, ${M}:**\n\n` +
-        rows.map((r, i) => `${i + 1}. **${r.name}**: ${fmtV(m, r.v)}${total ? ` (${fmtPct0((r.v ?? 0) / total)} of total)` : ""}${fmtD(m, r.pv, r.v) ? `, ${fmtD(m, r.pv, r.v)} vs August pace` : ""}`).join("\n") +
+        rows.map((r, i) => `${i + 1}. **${r.name}**: ${fmtV(m, r.v)}${total ? ` (${fmtPct0((r.v ?? 0) / total)} of total)` : ""}${fmtD(m, r.pv, r.v) ? `, ${fmtD(m, r.pv, r.v)} vs the previous period` : ""}`).join("\n") +
         (total ? `\n\nTotal: **${fmtInt(total)}**.` : ""),
       kpis: rows.slice(0, 4).map((r) => kp(r.name, fmtV(m, r.v), fmtD(m, r.pv, r.v), toneD(m, r.pv, r.v))),
       cta: { label: "Open Detailed Analysis", href: `/states?${q2}` },
@@ -428,7 +426,7 @@ export const ruleBasedProvider: AnswerProvider = {
           `**${top.state}** is the principal driver of the ${M} change: cancellations ${fmtSignedPct(top.cancelsMoM)} versus ${monthName(pm ?? month)} (${fmtInt(top.cancels)} orders, ${fmtPct(top.cancelRate)} cancel rate)` +
           `${top.contribution !== null ? `, **${fmtPct0(top.contribution)}** of the portfolio increase` : ""}.\n\n` +
           `Ranking by growth: ${rows.map((r) => `${r.state} ${fmtSignedPct(r.cancelsMoM)}`).join(" · ")}.` +
-          (d.focusChannel ? `\n\nFocus channel: **${d.focusChannel.channel}** (${fmtPct0(d.focusChannel.contribution)} of the increase).` : ""),
+          (d.focusChannel ? `\n\nFocus channel: **${d.focusChannel.channel}** (${fmtPct0(d.focusChannel.contribution)} of the cancellations above normal).` : ""),
         kpis: [kp(`${top.state} cancellations`, fmtInt(top.cancels), fmtSignedPct(top.cancelsMoM), "bad"), kp("Post ODD", fmtPct0(top.postPct)), kp("Pending contact", fmtPct0(top.pendingPct))],
         cta: { label: `Open ${top.state} analysis`, href: analysisHref({ state: top.state }, month) },
         followUps: [`Why is ${top.state} performing poorly?`, "Which channel is driving the increase?"],
@@ -527,7 +525,7 @@ export const ruleBasedProvider: AnswerProvider = {
 function help(model: DataModel, month: MonthKey): GenieAnswer {
   return {
     intent: "help",
-    text: "I answer directly from the workbook data. You can ask for a **value** (“cancels this week”), a **comparison** (“cancel rate this week vs August”), a **ranking** (“which channel has the highest cancel rate”), a **trend** (“Post ODD share trend”), a **breakdown** (“cancellations by state”), or **insights** and **recommended actions**.",
+    text: "I answer directly from the workbook data. You can ask for a **value** (“cancels this week”), a **comparison** (“cancel rate this week vs last week”), a **ranking** (“which channel has the highest cancel rate”), a **trend** (“Post ODD share trend”), a **breakdown** (“cancellations by state”), or **insights** and **recommended actions**.",
     kpis: [], followUps: suggestedQuestions(model, month).slice(0, 4),
   };
 }

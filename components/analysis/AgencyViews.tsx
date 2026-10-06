@@ -8,11 +8,11 @@ import { Donut } from "../charts/Donut";
 import { ChannelIcon } from "../story/ChannelIcon";
 import { AgencySignals, AgencyTrend, RepRanking, RepSignals, SIGNALS, bandColor } from "./charts";
 import type { AgencySnapshotRow, RepRow } from "@/lib/data/types";
-import type { Selection } from "@/lib/story/links";
+import type { SelectionPatch } from "@/lib/story/links";
 import { AGENCY_GAP_THRESHOLD } from "@/lib/data/metrics";
 import { fmtInt, fmtPct, fmtPct0, fmtPp, fmtSignedPct, monthName } from "@/lib/format";
 
-type Select = (s: Partial<Selection>) => void;
+type Select = (s: SelectionPatch) => void;
 
 export function Panel({ title, sub, children, className, right }: { title: string; sub?: string; children: React.ReactNode; className?: string; right?: React.ReactNode }) {
   return (
@@ -48,7 +48,7 @@ export function AgencyTable({ agencies, select, selected, title, sub }: { agenci
   const rows = [...agencies].sort((a, b) => (b.gap ?? 0) - (a.gap ?? 0));
   const max = Math.max(...rows.map((r) => r.cancelRate ?? 0));
   return (
-    <Panel title={title ?? `${model.story.focusState ?? ""} agencies and sources`} sub={sub ?? `${monthName(month)} cancel rate against each agency's own January to August history. Select an agency for its representatives.`}>
+    <Panel title={title ?? `${model.story.focusState ?? ""} agencies and sources`} sub={sub ?? `${monthName(month)} cancel rate against each agency's own historical average. Select an agency for its representatives.`}>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[860px] text-[13px]">
           <thead>
@@ -100,7 +100,7 @@ export function AgencyTable({ agencies, select, selected, title, sub }: { agenci
           </tbody>
         </table>
       </div>
-      <div className="mt-3 flex items-center gap-2 text-[11.5px] text-mute"><span className="h-3 w-[2px] rounded bg-ink" /> Own January to August history</div>
+      <div className="mt-3 flex items-center gap-2 text-[11.5px] text-mute"><span className="h-3 w-[2px] rounded bg-ink" /> Own historical average</div>
     </Panel>
   );
 }
@@ -151,15 +151,15 @@ export function AgencyDetail({ agency, select }: { agency: AgencySnapshotRow; se
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-3.5 md:grid-cols-3 xl:grid-cols-5">
-        <Tile label="Unique Sales" value={fmtInt(agency.sales)} sub={<>{fmtSignedPct(agency.prevSales ? (agency.sales ?? 0) / agency.prevSales - 1 : null)} vs Aug pace</>} />
-        <Tile label="Cancellations" value={fmtInt(agency.cancels)} sub={<>{fmtInt(agency.prevCancels)} Aug pace</>} tone={w ? "bad" : "neutral"} />
-        <Tile label="Cancel rate" value={fmtPct(agency.cancelRate)} sub={<> Aug pace {fmtPct(prevRate)}</>} tone={w ? "bad" : "neutral"} />
-        <Tile label="Own history" value={fmtPct(agency.baseline)} sub="January to August average" />
+        <Tile label="Unique Sales" value={fmtInt(agency.sales)} sub={<>{fmtSignedPct(agency.prevSales ? (agency.sales ?? 0) / agency.prevSales - 1 : null)} vs prior period</>} />
+        <Tile label="Cancellations" value={fmtInt(agency.cancels)} sub={<>{fmtInt(agency.prevCancels)} prior period</>} tone={w ? "bad" : "neutral"} />
+        <Tile label="Cancel rate" value={fmtPct(agency.cancelRate)} sub={<>prior period {fmtPct(prevRate)}</>} tone={w ? "bad" : "neutral"} />
+        <Tile label="Own history" value={fmtPct(agency.baseline)} sub="Historical average" />
         <Tile label="Change vs own history" value={fmtPp(agency.gap)} sub={agency.disposition ? `Disposition: ${agency.disposition}` : undefined} tone={w ? "bad" : "good"} />
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[1.4fr_1fr]">
-        <Panel title="Cancel rate by month" sub={`${agency.agency} against its own January to August history`}>
+        <Panel title="7 day cancel rate by day" sub={`${agency.agency} against its own historical average`}>
           <AgencyTrend model={model} agency={agency.agency} month={month} height={250} />
         </Panel>
         <Panel title="Order quality signals" sub="Share of the agency's orders showing each risk signal">
@@ -212,9 +212,9 @@ export function RepDetail({ rep, select }: { rep: RepRow; select: Select }) {
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-3.5 md:grid-cols-3 xl:grid-cols-6">
-        <Tile label="Unique Sales" value={fmtInt(rep.sales)} sub={(rep.prevSales ?? 0) > 0 ? <>{fmtInt(rep.prevSales)} Aug pace</> : "New in the period"} />
-        <Tile label="Cancellations" value={fmtInt(rep.cancels)} sub={(rep.prevSales ?? 0) > 0 ? <>{fmtInt(rep.prevCancels)} Aug pace</> : undefined} tone={crit ? "bad" : "neutral"} />
-        <Tile label="Cancel rate" value={fmtPct(rep.rate)} sub={prevRate !== null ? <> Aug pace {fmtPct(prevRate)}</> : undefined} tone={crit ? "bad" : "neutral"} />
+        <Tile label="Unique Sales" value={fmtInt(rep.sales)} sub={(rep.prevSales ?? 0) > 0 ? <>{fmtInt(rep.prevSales)} prior period</> : "New in the period"} />
+        <Tile label="Cancellations" value={fmtInt(rep.cancels)} sub={(rep.prevSales ?? 0) > 0 ? <>{fmtInt(rep.prevCancels)} prior period</> : undefined} tone={crit ? "bad" : "neutral"} />
+        <Tile label="Cancel rate" value={fmtPct(rep.rate)} sub={prevRate !== null ? <>prior period {fmtPct(prevRate)}</> : undefined} tone={crit ? "bad" : "neutral"} />
         <Tile label="Watchtower band" value={rep.band || "n/a"} sub="Low ≤15%, Watch ≤25%, High ≤40%, Critical above" tone={crit ? "bad" : "neutral"} />
         <Tile label="Tenure" value={rep.tenure !== null ? `${fmtInt(rep.tenure)} mo` : "n/a"} sub={rep.cohort} />
         <Tile label="Rank in agency" value={`${rank} / ${peers.length}`} sub={`by ${monthName(month)} cancel rate`} />

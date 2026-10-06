@@ -82,7 +82,7 @@ export function KPICard({
         <span className={cn("flex items-center gap-1 font-semibold", tone === "bad" ? "text-bad" : tone === "good" ? "text-good" : spotlight ? "text-white/70" : "text-mute")}>
           <Arrow className="size-3.5" />
           <span className="num">{deltaTxt}</span>
-          <span className={cn("font-normal", spotlight ? "text-white/50" : "text-soft")}>vs Aug pace</span>
+          <span className={cn("font-normal", spotlight ? "text-white/50" : "text-soft")}>vs prior period</span>
         </span>
         <span className={cn("num", spotlight ? "text-white/50" : "text-soft")} title={pm ? `${monthShort(pm)} value` : undefined}>
           {pm && prevVal !== null ? `${monthShort(pm)} ${formatCompactKpi(def, prevVal)}` : ""}

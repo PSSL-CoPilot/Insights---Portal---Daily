@@ -7,6 +7,7 @@ import { RankedBars } from "../charts/RankedBars";
 import type { DataModel, MonthKey, RepRow } from "@/lib/data/types";
 import { fmtInt, fmtPct, fmtPct0, monthLabel, monthShort } from "@/lib/format";
 import { steadySignals } from "@/lib/story/analysis";
+import { agencyDays } from "@/lib/data/daily";
 
 const ease = [0.2, 0.8, 0.2, 1] as const;
 
@@ -21,13 +22,14 @@ export type SignalKey = (typeof SIGNALS)[number]["key"];
 /** Side by side signal bars (e.g. a representative vs its agency vs the steady agencies). */
 export function SignalCompare({ series }: { series: { name: string; color: string; values: Partial<Record<SignalKey, number | null>> }[] }) {
   const max = Math.max(0.1, ...series.flatMap((s) => SIGNALS.map((k) => s.values[k.key] ?? 0))) * 1.1;
+  const ordered = [...SIGNALS].sort((a, b) => (series[0]?.values[b.key] ?? 0) - (series[0]?.values[a.key] ?? 0));
   return (
     <div>
       <div className="mb-3 flex flex-wrap gap-4 text-[12px] text-mute">
         {series.map((s) => <span key={s.name} className="flex items-center gap-1.5"><span className="h-2 w-4 rounded-full" style={{ background: s.color }} />{s.name}</span>)}
       </div>
       <div className="space-y-4">
-        {SIGNALS.map((k, i) => (
+        {ordered.map((k, i) => (
           <div key={k.key}>
             <div className="mb-1.5 text-[13px] text-ink-2">{k.label}</div>
             <div className="space-y-1">
@@ -75,11 +77,11 @@ export function RepSignals({ model, rep }: { model: DataModel; rep: string }) {
   );
 }
 
-/** Agency cancel rate by month with its own January to August baseline. */
+/** Agency cancel rate over time (day-wise: 7 day rolling, by day) with its own historical baseline. */
 export function AgencyTrend({ model, agency, month, height = 220 }: { model: DataModel; agency: string; month: MonthKey; height?: number }) {
-  const rows = model.story.agencyMonthly.filter((r) => r.agency === agency && r.month <= month).sort((a, b) => a.month.localeCompare(b.month));
-  if (!rows.length) return <div className="py-6 text-center text-[13px] text-mute">Monthly detail is not available for {agency}.</div>;
-  const baseline = rows.find((r) => r.baseline !== null)?.baseline ?? null;
+  const rows = model.daily ? agencyDays(model, agency) : model.story.agencyMonthly.filter((r) => r.agency === agency && r.month <= month).sort((a, b) => a.month.localeCompare(b.month));
+  if (!rows.length) return <div className="py-6 text-center text-[13px] text-mute">Detail is not available for {agency}.</div>;
+  const baseline = model.story.agencies.find((a) => a.agency === agency)?.baseline ?? null;
   const data = rows.map((r) => ({ month: r.month, label: monthShort(r.month), rate: r.cancelRate, sales: r.sales, cancels: r.cancels }));
   const id = `ag-${agency.replace(/\W/g, "")}`;
   return (
@@ -103,7 +105,7 @@ export function AgencyTrend({ model, agency, month, height = 220 }: { model: Dat
             ) : null
           }
         />
-        <Area type="monotone" dataKey="rate" stroke={C.bad} strokeWidth={2.2} fill={`url(#${id})`} isAnimationActive animationDuration={900} dot={{ r: 3, fill: "var(--color-card)", stroke: C.bad, strokeWidth: 2 }} />
+        <Area type="monotone" dataKey="rate" stroke={C.bad} strokeWidth={2.2} fill={`url(#${id})`} isAnimationActive animationDuration={900} dot={model.daily ? false : { r: 3, fill: "var(--color-card)", stroke: C.bad, strokeWidth: 2 }} />
       </AreaChart>
     </ResponsiveContainer>
   );

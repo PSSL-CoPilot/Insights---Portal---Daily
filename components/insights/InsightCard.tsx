@@ -31,7 +31,7 @@ export function InsightCard({ insight, index = 0 }: { insight: Insight; index?: 
               ))}
             </ul>
           </div>
-          <div className="mt-4 flex gap-2 rounded-xl bg-subtle px-3.5 py-2.5 text-[13px]">
+          <div className="mt-4 flex gap-2 rounded-xl border border-line bg-card px-3.5 py-2.5 text-[13px]">
             <CornerDownRight className="mt-0.5 size-4 shrink-0 text-mute" />
             <span><strong>Recommended action:</strong> <span className="text-ink-2">{insight.action}</span></span>
           </div>

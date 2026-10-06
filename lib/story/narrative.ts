@@ -3,10 +3,11 @@
  * the plan overview and for each state or channel plan, and the recommended intervention layers.
  * Sentences are templates; every figure comes from `storyFacts` or the metrics layer.
  */
-import type { DataModel, InterventionRow, MonthKey } from "../data/types";
+import type { AgencySnapshotRow, DataModel, InterventionRow, MonthKey } from "../data/types";
+import { hz, parseKey, presets } from "../data/daily";
 import { getSnapshot, isChannel, prevMonth, scopeName, stateRows, type Snapshot } from "../data/metrics";
 import { fmtInt, fmtPct, fmtPct0, fmtPp, fmtSignedPct, monthName, monthShort } from "../format";
-import { storyFacts, type StoryFacts } from "./facts";
+import { riskFactors, storyFacts, type StoryFacts } from "./facts";
 import { agencyLink, channelLink, hrefs, link, listJoin, scopeLink, stateLink } from "./links";
 import type { NarrativePoint, Recommendation, StorySection } from "./types";
 
@@ -30,6 +31,34 @@ const INTERVENTION_VERB: Record<InterventionRow["kind"], string> = {
 };
 const INTERVENTION_ACTION: Partial<Record<InterventionRow["kind"], string>> = { sales: "sales-quality", install: "install", contact: "confirm" };
 
+/** Coaching focus for a partner, from its main sales quality pattern in the workbook. */
+export function agencyCoaching(a: Pick<AgencySnapshotRow, "pattern">): { focus: string; action: string } {
+  if (/rep mix|new rep|replacement/i.test(a.pattern)) return { focus: "sales quality for its newer and replacement reps", action: "Coach the newer and replacement reps and tighten sales quality checks on their orders" };
+  if (/confirm|follow/i.test(a.pattern)) return { focus: "confirmation and follow-up discipline", action: "Improve confirmation and follow-up discipline after every sale" };
+  if (/competitor|promotion|promo/i.test(a.pattern)) return { focus: "competitor handling and promotion expectations", action: "Coach competitor handling, reliability messaging and clear promotion expectations" };
+  return { focus: "sales quality", action: "Review sales quality with the partner" };
+}
+
+/** Day-wise headline: "Over the last 5 days, cancellations increased {{bad:24%}} while Unique Sales increased {{good:6%}}". */
+function dailyHeadline(f: StoryFacts): string {
+  const m = f.model, key = f.month, ids = presets(m).filter((p) => p.key === key).map((p) => p.id);
+  const [start, end] = parseKey(key);
+  const move = (v: number | null, upIsGood: boolean) => {
+    if (v === null) return "had no comparison";
+    if (Math.abs(v) < 0.005) return "held flat";
+    const tone = v > 0 === upIsGood ? "good" : "bad";
+    return `${v > 0 ? "increased" : "decreased"} {{${tone}:${fmtPct0(Math.abs(v))}}}`;
+  };
+  const n = ids.find((x) => x === "5" || x === "7" || x === "30");
+  const lead = ids.includes("latest") ? "Today: Cancellations"
+    : n ? `Over the last ${n} days${ids.includes("mtd") ? " (month to date)" : ""}, cancellations`
+    : ids.includes("mtd") ? "Month to date, cancellations"
+    : end === m.daily!.dates[m.daily!.dates.length - 1] && start !== end ? `Over the last ${m.daily!.days} days, cancellations`
+    : start === end ? `On ${monthShort(start)}, cancellations`
+    : `From ${monthShort(start)} to ${monthShort(end)}, cancellations`;
+  return `${lead} ${move(f.d.cancelsMoM, false)} while Unique Sales ${move(f.d.salesMoM, true)}`;
+}
+
 // ------------------------------------------------------------------ shared point builders
 function portfolioPoint(f: StoryFacts): NarrativePoint {
   const M = monthName(f.month);
@@ -40,7 +69,7 @@ function portfolioPoint(f: StoryFacts): NarrativePoint {
   if (!d.anomaly) {
     return {
       id: "portfolio", mode: "observed", label: "Portfolio", tone: "good",
-      text: `**${M} performance is in line with trend.** Cancellations moved ${fmtSignedPct(d.cancelsMoM)} against ${fmtSignedPct(d.salesMoM)} sales${f.model.daily ? " at August pace" : ""}, with a cancel rate of **${fmtPct(port.cancelRate)}** (${fmtPct(portPrev?.cancelRate)} ${f.model.daily ? "in August" : "prior"}), within normal ${f.model.daily ? "day to day" : "monthly"} variation.`,
+      text: `**${M} performance is in line with trend.** Cancellations moved ${fmtSignedPct(d.cancelsMoM)} against ${fmtSignedPct(d.salesMoM)} sales versus ${monthName(f.prev)}, with a cancel rate of **${fmtPct(port.cancelRate)}** (${fmtPct(portPrev?.cancelRate)} before), close to the ${fmtPct(f.baselineRate)} norm.`,
       evidence: { kind: "trend", scope: null, title: "Cancel rate by day", interpretation: `The cancel rate stayed inside its usual range in ${M}; no exception is present.` },
     };
   }
@@ -51,10 +80,10 @@ function portfolioPoint(f: StoryFacts): NarrativePoint {
       `**${M} cancellations rose ${abs(fmtSignedPct(d.cancelsMoM))}** to ${fmtInt(port.cancels)} while ${salesWord}. ` +
       `The cancel rate moved from ${fmtPct(portPrev?.cancelRate)} to **${fmtPct(port.cancelRate)}**` +
       (f.baselineRate !== null ? `, against an internal baseline of ${fmtPct(f.baselineRate)}` : "") +
-      (f.multiple !== null ? `: about **${Math.round(f.multiple)}×** the normal monthly movement.` : "."),
+      (f.multiple !== null ? `: about **${Math.round(f.multiple)}×** the normal movement.` : "."),
     evidence: {
       kind: "trend", scope: null, title: "Cancel rate by day",
-      interpretation: `The rate held near ${fmtPct(f.baselineRate)} through ${f.prev ? monthName(f.prev) : "the prior month"}, then broke out in ${M}; sales growth of ${fmtSignedPct(d.salesMoM)} does not explain the move.`,
+      interpretation: `The rate held near ${fmtPct(f.baselineRate)} through ${f.prev ? monthName(f.prev) : "the previous period"}, then broke out in ${M}; sales growth of ${fmtSignedPct(d.salesMoM)} does not explain the move.`,
     },
   };
 }
@@ -66,7 +95,7 @@ function geographyPoint(f: StoryFacts): NarrativePoint | null {
   return {
     id: "geography", mode: "observed", label: "Geography", tone: "bad",
     text:
-      `${stateLink(h.state, f.month)} explains **${fmtPct0(h.contribution)}** of the increase: cancellations **${fmtSignedPct(h.cancelsMoM)}** at a **${fmtPct(h.cancelRate)}** cancel rate.` +
+      `${stateLink(h.state, f.month)} explains **${fmtPct0(h.contribution)}** of the cancellations above normal: cancellations **${fmtSignedPct(h.cancelsMoM)}** at a **${fmtPct(h.cancelRate)}** cancel rate.` +
       (f.otherGrowth ? ` The other ${n} states moved between ${growthRange(f.otherGrowth)}.` : ""),
     evidence: {
       kind: "ranking", dim: "state", metric: "cancels", highlight: [h.state], title: `Cancellations by state, ${monthName(f.month)}`,
@@ -95,7 +124,7 @@ function channelPoint(f: StoryFacts): NarrativePoint | null {
   if (!f.d.anomaly || !top.length) return null;
   return {
     id: "channel", mode: "observed", label: "Channel", tone: "bad",
-    text: `By channel, ${listJoin(top.map((c) => channelLink(c.channel, f.month)))} account for ${listJoin(top.map((c) => `**${fmtPct0(c.contribution)}**`))} of the increase.`,
+    text: `By channel, ${listJoin(top.map((c) => channelLink(c.channel, f.month)))} account for ${listJoin(top.map((c) => `**${fmtPct0(c.contribution)}**`))} of the cancellations above normal.`,
     evidence: {
       kind: "ranking", dim: "channel", metric: "cancels", highlight: top.map((c) => c.channel), title: `Cancellations by channel, ${M}`,
       interpretation: `${listJoin(top.map((c) => c.channel))} contribute most of the cancellation growth; the remaining channels moved little.`,
@@ -168,10 +197,10 @@ function executivePoints(f: StoryFacts): NarrativePoint[] | null {
     id: "portfolio", mode: "observed", label: "Portfolio", tone: "bad",
     text: daily
       ? (daily.days === 1 ? `On ${M} cancellations reached **${fmtInt(port.cancels)}**` : `From ${M} (${daily.days} days) cancellations reached **${fmtInt(port.cancels)}**, about **${fmtInt(Math.round((port.cancels ?? 0) / daily.days!))}** a day`) +
-        `. The cancel rate is **${fmtPct(port.cancelRate)}**, against ${fmtPct(portPrev?.cancelRate)} in August and a ${fmtPct(f.baselineRate)} norm.`
+        `. The cancel rate is **${fmtPct(port.cancelRate)}**, against ${fmtPct(portPrev?.cancelRate)} in the previous period (${f.prev ? monthName(f.prev) : "n/a"}) and a ${fmtPct(f.baselineRate)} norm.`
       : `Cancellations reached **${fmtInt(port.cancels)}**. The cancel rate rose from ${fmtPct(portPrev?.cancelRate)} to **${fmtPct(port.cancelRate)}**, well above the ${fmtPct(f.baselineRate)} norm.`,
     evidence: daily
-      ? { kind: "trend", scope: null, title: "Daily cancel rate, September", interpretation: "The rate climbed through the middle of September and then held near its new level. Sales growth does not explain it." }
+      ? { kind: "trend", scope: null, title: "Daily cancel rate", interpretation: `The rate left its normal range on ${(() => { const x = daily.detection.find((r) => /^Portfolio/.test(r.signal)); return x?.date ? monthShort(x.date) : "the first flagged day"; })()} and has held near its new level since. Sales growth does not explain it.` }
       : { kind: "trend", scope: null, title: "Cancel rate by day", interpretation: `Stable all year, then a clear break in ${M}. Sales growth does not explain it.` },
   });
 
@@ -184,8 +213,9 @@ function executivePoints(f: StoryFacts): NarrativePoint[] | null {
     out.push({
       id: "detection", mode: "observed", label: "When it started", tone: "bad",
       text:
-        `The first warning came on **${day(first.date!)}**, ${first.daysBefore} days before month end: ${first.scope} at ${fmtPct0(first.value)}.` +
-        (st ? ` ${focus.state} left its normal range on **${day(st.date!)}**${pf ? ` and the portfolio on **${day(pf.date!)}**` : ""}.` : "") +
+        `The first warning came on **${day(first.date!)}**${first.daysBefore != null ? ` (${first.daysBefore} days ago)` : ""}: ${first.signal} at ${fmtPct0(first.value)}.` +
+        (st && st !== first ? ` ${focus.state} left its normal range on **${day(st.date!)}**.` : "") +
+        (pf ? ` The portfolio followed on **${day(pf.date!)}**.` : "") +
         (pend ? ` Pending Customer Contact passed ${fmtPct0(pend.value)} on **${day(pend.date!)}**` : "") +
         (post ? `${pend ? ";" : ""} late (Post ODD) losses followed on **${day(post.date!)}**.` : pend ? "." : ""),
       evidence: { kind: "trend", scope: focus.state, title: `${focus.state} daily cancel rate`, interpretation: "Daily tracking shows the problem weeks before a monthly report would." },
@@ -194,7 +224,9 @@ function executivePoints(f: StoryFacts): NarrativePoint[] | null {
 
   out.push({
     id: "geography", mode: "observed", label: "Where", tone: "bad",
-    text: `${stateLink(focus.state, month)} drove **${fmtPct0(focus.contribution)}** of the increase: its cancellations rose **${fmtSignedPct(focus.cancelsMoM)}**. Every other state stayed flat${f.otherGrowth ? ` (${fmtSignedPct(f.otherGrowth[0])} to ${fmtSignedPct(f.otherGrowth[1])})` : ""}.`,
+    text: daily
+      ? `${stateLink(focus.state, month)} accounts for **${fmtPct0(focus.contribution)}** of the cancellations above normal: its cancel rate is **${fmtPct(focus.cancelRate)}** against its usual ${fmtPct(focus.normal ?? null)} (cancellations ${fmtSignedPct(focus.cancelsMoM)} vs the previous period). The other states stay near normal${f.otherRate ? ` (${between(f.otherRate)})` : ""}.`
+      : `${stateLink(focus.state, month)} drove **${fmtPct0(focus.contribution)}** of the cancellations above normal: its cancellations rose **${fmtSignedPct(focus.cancelsMoM)}**.`,
     evidence: { kind: "ranking", dim: "state", metric: "cancels", highlight: [focus.state], title: `Cancellations by state, ${M}`, interpretation: `${focus.state} is the only state outside its normal range.` },
   });
 
@@ -210,13 +242,16 @@ function executivePoints(f: StoryFacts): NarrativePoint[] | null {
   if (s && f.weakAgencies.length) {
     const gaps = f.weakAgencies.map((a) => a.gap ?? 0);
     const co = f.cohort;
+    const named = [...f.weakAgencies].sort((x, y) => x.agency.localeCompare(y.agency));
+    const byAgency = named.map((a) => `${a.agency.replace(/^Agency /, "")} on ${agencyCoaching(a).focus}`);
     out.push({
       id: "sales-quality", mode: "observed", label: "Problem 1: sales quality", tone: "bad",
       text:
-        `${listJoin(f.weakAgencies.map((a) => agencyLink(a.agency, month)))} broke from their own history (${fmtPp(Math.min(...gaps))} to ${fmtPp(Math.max(...gaps))}).` +
-        (co ? ` At ${co.agency}, new reps made ${fmtPct0(co.salesShare)} of sales but **${fmtPct0(co.cancelShare)}** of cancellations.` : "") +
-        ` Poor quality sales explain **${fmtInt(s.cancels)}** cancellations (**${fmtPct0(s.share)}**).`,
-      evidence: { kind: "sales-quality", title: `${focus.state} agencies and representatives`, interpretation: "A few partners, and inside them the newest reps, carry most of the loss: a sales quality problem, not a market one." },
+        `A change in the sales team mix is producing poorer-quality sales.` +
+        (co ? ` At ${agencyLink(co.agency, month)}, newer and replacement reps made ${fmtPct0(co.salesShare)} of sales but **${fmtPct0(co.cancelShare)}** of cancellations.` : "") +
+        ` ${listJoin(named.map((a) => co && a.agency === co.agency ? a.agency : agencyLink(a.agency, month)))} cancel ${fmtPp(Math.min(...gaps))} to ${fmtPp(Math.max(...gaps))} above their own history; poor-quality sales explain **${fmtInt(s.cancels)}** cancellations (**${fmtPct0(s.share)}**).` +
+        ` These reps need targeted coaching: ${listJoin(byAgency)}.`,
+      evidence: { kind: "sales-quality", title: `${focus.state}: rep mix, risk factors and coaching by agency`, interpretation: "Three partners, and inside them the newer reps, carry most of the loss: a sales team quality problem that coaching can fix, not a market one." },
     });
 
     // Forward-looking, straight after the problem it prevents.
@@ -225,11 +260,11 @@ function executivePoints(f: StoryFacts): NarrativePoint[] | null {
     if (iv && ro.orders !== null) {
       const sg = f.signals;
       out.push({
-        id: "sales-prevention", mode: "preventive", label: `${f.forecast.month ? monthName(f.forecast.month) : "Next month"} prevention: sales quality`, tone: "warn",
+        id: "sales-prevention", mode: "preventive", label: `Prevention (next ${hz(f.model)} days): sales quality`, tone: "warn",
         text:
-          `Score each of the **${fmtInt(ro.orders)}** ${f.forecast.month ? monthName(f.forecast.month) : "next month"} ${listJoin(ro.channels)} orders in ${focus.state} for cancellation risk: ` +
-          `low intent (${fmtPct0(sg.lowIntent)}), promotion sensitivity (${fmtPct0(sg.promo)}), competitor mention (${fmtPct0(sg.competitor)}), price or offer mismatch (${fmtPct0(sg.failedConfirm)} fail independent confirmation) and rep risk (${fmtPct0(f.criticalRepShare)} of sales from Critical reps). ` +
-          `Verify the riskiest orders before installation and coach Critical reps: about **${fmtInt(iv.saves)}** cancellations avoided.`,
+          `Score each of the **${fmtInt(ro.orders)}** ${listJoin(ro.channels)} orders expected in ${focus.state} over the next ${hz(f.model)} days on five risk factors: ` +
+          `${listJoin(riskFactors(f).map((x) => x.short))}. ` +
+          `Verify the riskiest orders before installation and coach the reps behind them: about **${fmtInt(iv.saves)}** cancellations avoided.`,
         evidence: { kind: "sales-prevention", title: "Preventive sales quality analysis", interpretation: `Without action these orders are projected to cancel at ${fmtPct0(ro.rate)}. Verifying them before installation turns a lost sale into a confirmed or corrected one.` },
       });
     }
@@ -259,9 +294,9 @@ function executivePoints(f: StoryFacts): NarrativePoint[] | null {
   const hv = f.highValue, ivi = f.interventions.install;
   if (ivi && hv.total !== null && hv.accelerate && hv.resetOdd) {
     out.push({
-      id: "high-value", mode: "preventive", label: `${f.forecast.month ? monthName(f.forecast.month) : "Next month"} prevention: high-value customers`, tone: "warn",
+      id: "high-value", mode: "preventive", label: `Prevention (next ${hz(f.model)} days): high-value customers`, tone: "warn",
       text:
-        `Combine each order's cancellation-risk score with customer value, the ODD and permit and construction readiness. ` +
+        `Combine each order's cancellation-risk score with Customer Lifetime Value (CLTV), the ODD and permit and construction readiness. ` +
         `Of **${fmtInt(hv.total)}** ${focus.state} delivery-risk orders, **${fmtInt(hv.accelerate.orders)}** high-value customers are ready but scheduled late: bring their installation forward. ` +
         `**${fmtInt(hv.resetOdd.orders)}** have an ODD that cannot be met: correct the commitment before it fails. About **${fmtInt(ivi.saves)}** cancellations avoided.`,
       evidence: { kind: "high-value", title: "High-value customer protection", interpretation: "Act where it pays: speed up ready high-value jobs, reset impossible dates early, and leave low-risk orders on their normal route." },
@@ -270,10 +305,10 @@ function executivePoints(f: StoryFacts): NarrativePoint[] | null {
 
   const fc = f.forecast;
   if (fc.noAction !== null) {
-    const FM = fc.month ? monthName(fc.month) : "Next month";
+    const FM = `Next ${hz(f.model)} days`;
     out.push({
       id: "outlook", mode: "preventive", label: `${FM} outlook`, tone: "warn",
-      text: (() => { const p = daily?.prediction.find((x) => x.scope === "Portfolio"); return p ? `Oct 1 to 10 prediction: **${fmtInt(p.cancels10)}** cancellations (${fmtPct(p.rate10)}) without action; **${fmtInt(p.cancelsWith10)}** if the actions start on October 1 (**${fmtInt(p.avoided10)}** avoided). ` : ""; })() + `Without action, ${FM} reaches **${fmtPct(fc.noAction)}**${f.forecastFocus ? ` (${focus.state} **${fmtPct(f.forecastFocus.rate)}**)` : ""}. With the three actions, about **${fmtPct(fc.intervention)}**: roughly **${fmtInt(f.interventions.total?.saves ?? null)}** cancellations avoided.`,
+      text: (() => { const o = daily?.outlook?.[hz(f.model)]; return o ? `Next ${o.days} days (${monthShort(o.from)} to ${monthShort(o.to)}): **${fmtPct(o.rateNo)}** without action${f.forecastFocus ? ` (${focus.state} **${fmtPct(f.forecastFocus.rate)}**)` : ""}; if the three actions start the next day it trends to **${fmtPct(o.rateWith)}**: about **${fmtInt(f.interventions.total?.saves ?? null)}** cancellations avoided.` : ""; })(),
       evidence: { kind: "forecast", title: "Cancel rate: actual, outlook and intervention", interpretation: `Acting now turns a further rise into the first recovery step, back toward ${fmtPct(fc.baseline)}.` },
     });
   }
@@ -297,7 +332,7 @@ export function buildExecutiveNarrative(model: DataModel, month: MonthKey): Stor
   let subhead: string | undefined;
   if (!f.prev || d.cancelsMoM === null) headline = `${M}: baseline month`;
   else {
-    headline = `${M} cancellations ${toned(d.cancelsMoM, false)} vs Unique Sales ${toned(d.salesMoM, true)}`;
+    headline = model.daily ? dailyHeadline(f) : `${M} cancellations ${toned(d.cancelsMoM, false)} vs Unique Sales ${toned(d.salesMoM, true)}`;
     if (!d.anomaly) subhead = "Performance is in line with trend.";
     else if (f.focus) {
       const most = (f.focus.contribution ?? 0) >= 0.9 ? "almost all" : "most";
@@ -340,13 +375,13 @@ function changePoint(model: DataModel, month: MonthKey, scope: string, cur: Snap
   const pm = prevMonth(model, month);
   const cMoM = rel(cur.cancels, prev?.cancels), sMoM = rel(cur.sales, prev?.sales);
   if (cMoM === null || sMoM === null) {
-    return { id: "change", mode: "observed", label: "What changed", tone: "neutral", text: `${name} has no prior month comparison available.` };
+    return { id: "change", mode: "observed", label: "What changed", tone: "neutral", text: `${name} has no previous period comparison available.` };
   }
   const bad = cMoM > 0.05 && cMoM > sMoM + 0.05;
   return {
     id: "change", mode: "observed", label: "What changed", tone: bad ? "bad" : "good",
     text: bad
-      ? `Cancellations {{bad:${fmtSignedPct(cMoM)}}} vs sales ${toned(sMoM, true)} against ${pm ? monthName(pm) : "the prior month"}. The cancel rate went from ${fmtPct(prev?.cancelRate)} to **${fmtPct(cur.cancelRate)}**.`
+      ? `Cancellations {{bad:${fmtSignedPct(cMoM)}}} vs sales ${toned(sMoM, true)} against ${pm ? monthName(pm) : "the previous period"}. The cancel rate went from ${fmtPct(prev?.cancelRate)} to **${fmtPct(cur.cancelRate)}**.`
       : `In line with trend: cancellations ${toned(cMoM, false)} vs sales ${toned(sMoM, true)}, a **${fmtPct(cur.cancelRate)}** cancel rate.`,
     evidence: { kind: "trend", scope, title: `${name} cancel rate by day`, interpretation: bad ? `${name} broke from its usual range in ${monthName(month)}.` : `${name} stayed within its usual range.` },
   };
@@ -362,7 +397,7 @@ function scopeTimingPoint(month: MonthKey, scope: string, cur: Snapshot, prev: S
     id: "timing", mode: "observed", label: "When", tone: late ? "bad" : "neutral",
     text:
       `**${fmtPct0(cur.postPct)}** cancel ${link("after the due date", hrefs.postOdd(month, state))}` +
-      (prev?.postPct != null ? ` (${fmtPct0(prev.postPct)} at August pace; portfolio ${fmtPct0(port.postPct)})` : ` (portfolio ${fmtPct0(port.postPct)})`) +
+      (prev?.postPct != null ? ` (${fmtPct0(prev.postPct)} in the previous period; portfolio ${fmtPct0(port.postPct)})` : ` (portfolio ${fmtPct0(port.postPct)})`) +
       (pending !== null ? `. ${link("Pending Customer Contact", hrefs.watchtower(month, state))}: **${fmtPct0(pending)}**${prev?.pendingPct != null ? ` (from ${fmtPct0(prev.pendingPct)})` : ""}.` : "."),
     evidence: { kind: "timing", scope, title: `${name} cancellation timing`, interpretation: late ? "Customers here are lost late, after the committed date: an appointment journey problem." : "The timing mix is close to the portfolio; no late stage concentration." },
   };
@@ -448,9 +483,9 @@ export function buildScopeNarrative(model: DataModel, month: MonthKey, scope: st
         out.push({
           id: "outlook", mode: "preventive", label: `${FM} risk outlook`, tone: worse ? "warn" : "good",
           text: worse
-            ? `Without action, ${FM} is projected at **${fmtPct(r.rate)}** on ${fmtInt(r.sales)} sales (${monthName(month)} ${fmtPct(r.prevRate)}). See the ${link("recommended interventions", hrefs.actions(month))}.`
-            : `${FM} is projected at **${fmtPct(r.rate)}**, in line with ${monthName(month)} (${fmtPct(r.prevRate)}); no intervention is required here.`,
-          evidence: { kind: "forecast-scope", scope, title: `${name}: ${monthName(month)} actual vs ${FM} outlook`, interpretation: worse ? `Without intervention ${name} deteriorates further in ${FM}.` : `${name} is expected to stay near its normal level.` },
+            ? `Over the next ${hz(f.model)} days, without action, ${name} is projected at **${fmtPct(r.rate)}** on ${fmtInt(r.sales)} sales (${monthName(month)} ${fmtPct(r.prevRate)}). See the ${link("recommended interventions", hrefs.actions(month))}.`
+            : `Over the next ${hz(f.model)} days ${name} is projected at **${fmtPct(r.rate)}**, in line with ${monthName(month)} (${fmtPct(r.prevRate)}); no intervention is required here.`,
+          evidence: { kind: "forecast-scope", scope, title: `${name}: ${monthName(month)} actual vs ${FM} outlook`, interpretation: worse ? `Without intervention ${name} deteriorates further over the next 30 days.` : `${name} is expected to stay near its normal level.` },
         });
       }
     } else if (f.focus) {
@@ -459,7 +494,7 @@ export function buildScopeNarrative(model: DataModel, month: MonthKey, scope: st
         const worse = (r.delta ?? 0) > 0.03;
         out.push({
           id: "outlook", mode: "preventive", label: `${FM} risk outlook`, tone: worse ? "warn" : "good",
-          text: `In ${f.focus.state}, ${FM} ${name} is projected at **${fmtPct(r.rate)}** without action (${monthName(month)} ${fmtPct(r.prevRate)}, internal baseline ${fmtPct(r.baseline)}).`,
+          text: `In ${f.focus.state}, ${name} is projected at **${fmtPct(r.rate)}** over the next ${hz(f.model)} days without action (${monthName(month)} ${fmtPct(r.prevRate)}, internal baseline ${fmtPct(r.baseline)}).`,
           evidence: { kind: "forecast-scope", scope, title: `${f.focus.state} ${name}: ${FM} outlook`, interpretation: worse ? "The channel keeps deteriorating unless risky orders are verified before installation." : "The channel stays close to its internal baseline." },
         });
       }
@@ -506,7 +541,7 @@ export function buildPlanNarrative(model: DataModel, month: MonthKey): Narrative
   if (f.hasStory && f.forecastFocus && f.forecast.month) {
     out.push({
       id: "outlook", mode: "preventive", label: `${monthName(f.forecast.month)} risk outlook`, tone: "warn",
-      text: `Without action, ${monthName(f.forecast.month)} ${f.focus.state} is projected at **${fmtPct(f.forecastFocus.rate)}**` + (f.forecastOthers ? ` while every other state stays ${between(f.forecastOthers)}.` : "."),
+      text: `Over the next ${hz(f.model)} days, without action, ${f.focus.state} is projected at **${fmtPct(f.forecastFocus.rate)}**` + (f.forecastOthers ? ` while every other state stays ${between(f.forecastOthers)}.` : "."),
       evidence: { kind: "forecast-scope", scope: f.focus.state, title: `${monthName(f.forecast.month)} outlook by state`, interpretation: `The outlook confirms ${f.focus.state} as the place to act; the rest of the footprint stays near normal.` },
     });
   }

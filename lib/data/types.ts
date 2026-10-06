@@ -447,9 +447,7 @@ export interface DataModel {
   stateChannel: StateChannelRow[];
   /** Agency, attribution, forecast and prevention tables. Empty arrays when the sheets are absent. */
   story: StoryData;
-  /** Day-wise build: every window is compared with this month's average week (August). */
+  /** Day-wise build: the comparison period of the selection (the period just before it). */
   baselineMonth?: MonthKey | null;
-  /** Day-wise build: August at one day, the comparison for each single day of the daily trend. */
-  dayBaseline?: MonthKey | null;
   daily?: import("./daily").DailyExtras;
 }

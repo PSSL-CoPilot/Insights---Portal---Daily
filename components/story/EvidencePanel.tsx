@@ -19,13 +19,32 @@ import { C, TipCard, axisProps } from "../charts/shared";
 import { cn } from "../ui/primitives";
 import { ChannelIcon } from "./ChannelIcon";
 import { assess, isChannel, kpiById, scopeName, series } from "@/lib/data/metrics";
-import { storyFacts } from "@/lib/story/facts";
-import { buildRecommendations } from "@/lib/story/narrative";
+import { riskFactors as factorsHighestFirst, storyFacts } from "@/lib/story/facts";
+import { agencyCoaching, buildRecommendations } from "@/lib/story/narrative";
 import type { EvidenceSpec } from "@/lib/story/types";
 import { fmtInt, fmtPct, fmtPct0, fmtPp, fmtSignedPct, monthName, monthShort, stateSlug } from "@/lib/format";
 
 export const TEAL = "var(--color-teal)";
 export const NAVY = "var(--color-observed)";
+
+/** Next 5 / Next 30 days switch. One horizon for the whole app, so every outlook, plan and action follows it. */
+export function HorizonToggle({ className }: { className?: string }) {
+  const { model, horizon, setHorizon } = useApp();
+  if (!model.daily) return null;
+  return (
+    <div className={cn("inline-flex rounded-full border border-line bg-card p-0.5 shadow-card", className)} role="group" aria-label="Outlook horizon">
+      {([5, 30] as const).map((h) => (
+        <button key={h} type="button" onClick={() => setHorizon(h)} aria-pressed={horizon === h}
+          className={horizon === h ? "rounded-full bg-ink px-2.5 py-1 text-[11px] font-semibold text-canvas" : "rounded-full px-2.5 py-1 text-[11px] font-semibold text-mute hover:text-ink"}>
+          Next {h} Days
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Evidence kinds that look forward: they carry the horizon switch. */
+const FORWARD = new Set(["forecast", "forecast-scope", "interventions", "sales-prevention", "high-value", "measures", "outlook"]);
 
 /** Tiny inline "See evidence" control. */
 export function EvidenceToggle({ open, onToggle, controls, className }: { open: boolean; onToggle: () => void; controls: string; className?: string }) {
@@ -68,9 +87,12 @@ export function EvidencePanel({ spec, open, id, className }: { spec: EvidenceSpe
             initial={{ y: 8 }}
             animate={{ y: 0 }}
             transition={{ duration: 0.4, ease: [0.2, 0.8, 0.2, 1] }}
-            className="mt-3 rounded-2xl border border-line bg-subtle p-4 sm:p-5"
+            className="mt-3 rounded-2xl border border-line bg-card p-4 shadow-card sm:p-5"
           >
-            <div className="mb-3 text-[12.5px] font-semibold text-ink">{spec.title}</div>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="text-[12.5px] font-semibold text-ink">{spec.title}</div>
+              {FORWARD.has(spec.kind) && <HorizonToggle />}
+            </div>
             <EvidenceBody spec={spec} />
             <p className="mt-3 flex gap-2 border-t border-line pt-3 text-[13px] leading-relaxed text-ink-2">
               <Lightbulb className="mt-0.5 size-3.5 shrink-0 text-brand-2" />
@@ -186,7 +208,7 @@ function EvidenceBody({ spec }: { spec: EvidenceSpec }) {
     case "agency-signals":
       return <AgencySignals model={model} agency={spec.agency} />;
     case "reps":
-      return <RepRanking reps={model.story.reps.filter((r) => r.agency === spec.agency)} highlight={spec.highlight} onSelect={(id) => go(analysisHref({ rep: id }, month))} limit={14} />;
+      return <RepRanking reps={model.story.reps.filter((r) => (spec.agencies ?? [spec.agency]).includes(r.agency) && (r.sales ?? 0) > 0)} highlight={spec.highlight} onSelect={(id) => go(analysisHref({ rep: id }, month))} limit={14} />;
     case "rep-signals":
       return <RepSignals model={model} rep={spec.rep} />;
     case "measures":
@@ -200,35 +222,90 @@ function EvidenceBody({ spec }: { spec: EvidenceSpec }) {
   }
 }
 
-/** Agencies against their own history, then the representatives behind the loss. */
+const riskFactors = factorsHighestFirst;
+
+function FactorBars({ factors }: { factors: { label: string; v: number | null }[] }) {
+  return (
+    <div className="space-y-3">
+      {factors.map((x, i) => (
+        <div key={x.label}>
+          <div className="mb-1 flex items-baseline justify-between gap-3 text-[13px]"><span className="text-ink-2"><span className="mr-1.5 text-mute">{i + 1}.</span>{x.label}</span><span className="num font-semibold">{fmtPct0(x.v)}</span></div>
+          <div className="h-2.5 overflow-hidden rounded-full bg-line-2">
+            <motion.div className="h-full w-full rounded-full" style={{ background: TEAL, transformOrigin: "0 50%" }} initial={{ scaleX: 0 }} animate={{ scaleX: Math.min(1, (x.v ?? 0) / 0.7) }} transition={{ duration: 0.8, delay: 0.1 + i * 0.08, ease: [0.2, 0.8, 0.2, 1] }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Rep mix change, the risk factors, coaching by agency, then the representatives behind the loss. */
 function SalesQualityEvidence() {
   const { model, month } = useApp();
   const router = useRouter();
   const f = storyFacts(model, month);
-  const ag = [...model.story.agencies].sort((a, b) => (b.gap ?? 0) - (a.gap ?? 0));
-  if (!ag.length) return <Unavailable text="Agency detail is not available in the workbook." />;
-  const weak = new Set(f.weakAgencies.map((a) => a.agency));
+  if (!model.story.agencies.length) return <Unavailable text="Agency detail is not available in the workbook." />;
+  const weakList = [...f.weakAgencies].sort((x, y) => x.agency.localeCompare(y.agency));
+  const weak = new Set(weakList.map((a) => a.agency));
   const reps = model.story.reps.filter((r) => weak.has(r.agency));
-  const crit = reps.filter((r) => /critical/i.test(r.band));
-  const max = Math.max(...ag.map((a) => a.cancelRate ?? 0)) * 1.05;
+  const crit = reps.filter((r) => /critical/i.test(r.band) && (r.sales ?? 0) > 0);
+  // Who to coach is read from each rep's last 30 days (a few days of one rep's sales are too few): the two riskiest per agency.
+  const coachPool = (model.daily?.monthly?.story.reps ?? model.story.reps).filter((r) => weak.has(r.agency) && (r.sales ?? 0) >= 10);
+  const coach = weakList.flatMap((a) => coachPool.filter((r) => r.agency === a.agency).sort((x, y) => (y.rate ?? 0) - (x.rate ?? 0)).slice(0, 2));
+  const newer = (agency: string) => model.story.cohorts.find((c) => c.agency === agency && /new/i.test(c.cohort) && (c.sales ?? 0) > 0) ?? null;
+  const mixRows = weakList.map((a) => ({ a, c: newer(a.agency) })).filter((x) => x.c);
+  const keySignal = (a: (typeof weakList)[number]) => {
+    const k = agencyCoaching(a).focus, c = newer(a.agency);
+    if (/newer/.test(k) && c) return `Newer reps: ${fmtPct0(c.salesShare)} of sales, ${fmtPct0(c.cancelShare)} of cancellations`;
+    if (/confirmation/.test(k)) return `${fmtPct0(a.failedConfirm)} of orders fail independent confirmation`;
+    if (/competitor/.test(k)) return `Competitor mentioned on ${fmtPct0(a.competitor)}, promotion-dependent ${fmtPct0(a.promo)}`;
+    return `Low intent ${fmtPct0(a.lowIntent)}`;
+  };
   return (
     <div className="space-y-5">
+      {mixRows.length > 0 && (
+        <div>
+          <div className="mb-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-mute">What changed in the sales team</div>
+          <div className="space-y-2.5">
+            {mixRows.map(({ a, c }) => (
+              <div key={a.agency} className="rounded-2xl bg-card p-3.5 shadow-card">
+                <div className="mb-2 flex items-baseline justify-between gap-3 text-[13px]"><span className="font-semibold">{a.agency}: newer and replacement reps</span><span className="text-[12px] text-mute">{fmtPct(c!.rate)} cancel rate</span></div>
+                {[{ l: "Share of sales", v: c!.salesShare, col: C.slate }, { l: "Share of cancellations", v: c!.cancelShare, col: C.bad }].map((x) => (
+                  <div key={x.l} className="mt-1.5 flex items-center gap-3 text-[12px]">
+                    <span className="w-[140px] shrink-0 text-mute">{x.l}</span>
+                    <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-line-2"><motion.div className="h-full w-full rounded-full" style={{ background: x.col, transformOrigin: "0 50%" }} initial={{ scaleX: 0 }} animate={{ scaleX: x.v ?? 0 }} transition={{ duration: 0.8, ease: [0.2, 0.8, 0.2, 1] }} /></div>
+                    <span className="num w-10 text-right font-semibold">{fmtPct0(x.v)}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div>
-        <div className="mb-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-mute">Agencies vs own history</div>
-        <RankedBars dense max={max} rows={ag.map((a) => {
-          const hi = weak.has(a.agency);
-          return {
-            id: a.agency, label: a.agency, sub: `${a.channel} · history ${fmtPct(a.baseline)}`, value: a.cancelRate, valueLabel: fmtPct(a.cancelRate),
-            chip: a.gap !== null ? { text: fmtPp(a.gap), tone: hi ? "bad" : "neutral" } : undefined, color: hi ? C.bad : C.slate, emphasis: hi,
-            onClick: () => router.push(analysisHref({ agency: a.agency }, month)),
-          };
-        })} />
+        <div className="mb-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-mute">Risk factors in these agencies' orders</div>
+        <FactorBars factors={riskFactors(f)} />
       </div>
       <div>
-        <div className="mb-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-mute">Riskiest representatives</div>
-        <RepRanking reps={reps} limit={8} onSelect={(id) => router.push(analysisHref({ rep: id }, month))} />
+        <div className="mb-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-mute">Coaching by agency</div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {weakList.map((a) => (
+            <button key={a.agency} type="button" onClick={() => router.push(analysisHref({ agency: a.agency }, month))} className="rounded-2xl border border-line bg-card p-4 text-left shadow-card transition hover:shadow-pop">
+              <div className="flex items-baseline justify-between gap-2"><span className="text-[13.5px] font-semibold">{a.agency}</span><span className="text-[11.5px] text-mute">{a.channel}</span></div>
+              <div className="mt-2 flex items-baseline gap-2"><span className="num-display text-[26px] leading-none text-bad">{fmtPct(a.cancelRate)}</span><span className="text-[12px] font-semibold text-bad">{fmtPp(a.gap)}</span></div>
+              <div className="mt-1 text-[11.5px] text-mute">vs own history {fmtPct(a.baseline)}</div>
+              <div className="mt-2.5 text-[12.5px] text-ink-2">{keySignal(a)}</div>
+              <div className="mt-2.5 rounded-xl bg-teal-soft px-3 py-2 text-[12.5px] font-medium text-teal">{agencyCoaching(a).action}</div>
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 px-1 text-[12px] text-mute">Every other source stays close to its own history{f.steadyAgencies.length ? ` (${fmtPp(Math.min(...f.steadyAgencies.map((a) => a.gap ?? 0)))} to ${fmtPp(Math.max(...f.steadyAgencies.map((a) => a.gap ?? 0)))})` : ""}.</p>
+      </div>
+      <div>
+        <div className="mb-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-mute">Reps to coach first{model.daily ? " (last 30 days)" : ""}</div>
+        <RepRanking reps={coach} limit={coach.length} onSelect={(id) => router.push(analysisHref({ rep: id }, month))} />
         <p className="mt-2 px-3 text-[12px] text-mute">
-          <strong className="text-ink">{crit.length} of {reps.length}</strong> representatives in these agencies are in the Critical band (above 40%), making <strong className="text-ink">{fmtPct0(f.criticalRepShare)}</strong> of their sales.
+          <strong className="text-ink">{crit.length} of {reps.filter((r) => (r.sales ?? 0) > 0).length}</strong> active representatives in these agencies are in the Critical band (above 40%), making <strong className="text-ink">{fmtPct0(f.criticalRepShare)}</strong> of their sales.
         </p>
       </div>
     </div>
@@ -241,36 +318,20 @@ function SalesPreventionEvidence() {
   const f = storyFacts(model, month);
   const ro = f.riskyOrders;
   const iv = f.interventions.sales;
-  const sg = f.signals;
-  const factors = [
-    { label: "Low intent in sales transcript", v: sg.lowIntent },
-    { label: "Promotion sensitivity", v: sg.promo },
-    { label: "Competitor mentioned", v: sg.competitor },
-    { label: "Price or offer mismatch (fails independent confirmation)", v: sg.failedConfirm },
-    { label: "Rep risk (sales from Critical reps)", v: f.criticalRepShare },
-  ];
+  const factors = riskFactors(f);
   const example = model.story.exampleOrder;
-  if (ro.orders === null) return <Unavailable text="The October outlook is not available in the workbook." />;
+  if (ro.orders === null) return <Unavailable text="The outlook is not available in the workbook." />;
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-3">
-        <div className="rounded-2xl bg-card p-4 shadow-card"><div className="num-display text-[30px] leading-none">{fmtInt(ro.orders)}</div><div className="mt-1.5 text-[12px] text-mute">{f.forecast.month ? monthName(f.forecast.month) : "Next month"} {ro.channels.join(" and ")} orders to score</div></div>
+        <div className="rounded-2xl bg-card p-4 shadow-card"><div className="num-display text-[30px] leading-none">{fmtInt(ro.orders)}</div><div className="mt-1.5 text-[12px] text-mute">{ro.channels.join(" and ")} orders to score, {f.forecast.month ? monthName(f.forecast.month).toLowerCase() : "next 30 days"}</div></div>
         <div className="rounded-2xl bg-card p-4 shadow-card"><div className="num-display text-[30px] leading-none text-bad">{fmtInt(ro.projected)}</div><div className="mt-1.5 text-[12px] text-mute">projected to cancel without action ({fmtPct0(ro.rate)})</div></div>
         <div className="rounded-2xl bg-teal p-4 text-white shadow-card dark:text-[#06201f]"><div className="num-display text-[30px] leading-none">{fmtInt(iv?.saves ?? null)}</div><div className="mt-1.5 text-[12px] opacity-90">cancellations avoided by verifying risky orders</div></div>
       </div>
       <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr]">
         <div>
           <div className="mb-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-mute">Risk factors in these agencies' orders</div>
-          <div className="space-y-3">
-            {factors.map((x, i) => (
-              <div key={x.label}>
-                <div className="mb-1 flex items-baseline justify-between gap-3 text-[13px]"><span className="text-ink-2">{x.label}</span><span className="num font-semibold">{fmtPct0(x.v)}</span></div>
-                <div className="h-2.5 overflow-hidden rounded-full bg-line-2">
-                  <motion.div className="h-full w-full rounded-full" style={{ background: TEAL, transformOrigin: "0 50%" }} initial={{ scaleX: 0 }} animate={{ scaleX: Math.min(1, (x.v ?? 0) / 0.7) }} transition={{ duration: 0.8, delay: 0.1 + i * 0.08, ease: [0.2, 0.8, 0.2, 1] }} />
-                </div>
-              </div>
-            ))}
-          </div>
+          <FactorBars factors={factors} />
         </div>
         {example.length > 0 && (
           <div className="rounded-2xl border border-teal/25 bg-card p-4">
@@ -291,7 +352,7 @@ function SalesPreventionEvidence() {
   );
 }
 
-/** Delivery risk segmentation: risk x customer value x ODD x readiness, with the action for each segment. */
+/** Delivery risk segmentation: risk x Customer Lifetime Value (CLTV) x ODD x readiness, with the action for each segment. */
 function HighValueEvidence() {
   const { model, month } = useApp();
   const f = storyFacts(model, month);
@@ -308,7 +369,7 @@ function HighValueEvidence() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-baseline gap-2 text-[13px] text-mute">
         <span className="num-display text-[28px] leading-none text-ink">{fmtInt(hv.total)}</span>
-        {f.focus?.state} delivery-risk orders, split by cancellation risk, customer value, ODD and permit and construction readiness
+        {f.focus?.state} delivery-risk orders, split by cancellation risk, Customer Lifetime Value (CLTV), ODD and permit and construction readiness
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         {segs.map((s) => {

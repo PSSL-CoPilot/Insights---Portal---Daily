@@ -7,18 +7,10 @@
 import type { DataModel, MonthKey } from "../data/types";
 import { getSnapshot, stateRows } from "../data/metrics";
 import { fmtInt, fmtSignedPct, monthName, monthShort } from "../format";
-import { storyFacts } from "./facts";
+import { riskFactors, storyFacts } from "./facts";
 import { buildExecutiveNarrative, buildRecommendations } from "./narrative";
 import type { NarrativePoint, SceneLayout, SceneVisual, StoryModel, StoryScene } from "./types";
-
 /** Sales quality risk factors used to score orders (price or offer mismatch is caught by independent confirmation). */
-const SIGNAL_LABELS = [
-  ["lowIntent", "Low intent in sales transcript"],
-  ["promo", "Promotion sensitivity"],
-  ["competitor", "Competitor mentioned"],
-  ["failedConfirm", "Price or offer mismatch (fails confirmation)"],
-] as const;
-
 /** Narration placement per scene: a deliberate mix so text moves around the visual. */
 const LAYOUT: Record<string, SceneLayout> = {
   portfolio: "top", geography: "right", channels: "bottom", "sales-quality": "right", "sales-prevention": "top", contact: "bottom",
@@ -89,7 +81,7 @@ export function buildStoryScenes(model: DataModel, month: MonthKey): StoryScene[
 
   // 5. Prevention for problem 1, straight after it.
   if (pt.has("sales-prevention")) {
-    const sig = [...SIGNAL_LABELS.map(([k, label]) => ({ label, value: f.signals[k] })), { label: "Rep risk (sales from Critical reps)", value: f.criticalRepShare }];
+    const sig = riskFactors(f).map((x) => ({ label: x.label, value: x.v }));
     add({
       id: "sales-prevention", mode: "preventive", kicker: pt.get("sales-prevention")!.label, duration: 13000,
       title: "Score risky orders before they cancel",

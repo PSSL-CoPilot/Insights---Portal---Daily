@@ -133,7 +133,7 @@ function ModalBody({ def, initialTab, initialState, onClose }: { def: KpiDef; in
             <div className="num-display text-[44px] leading-none tracking-tight">{formatCompactKpi(def, value)}</div>
             <div className="flex items-center gap-2 pb-1">
               <Delta value={a.delta?.value ?? null} kind={a.delta?.kind ?? "rel"} tone={tone} className="!text-base" />
-              <span className="text-sm text-mute">vs {pm ? monthName(pm) : "prior month"}</span>
+              <span className="text-sm text-mute">vs {pm ? monthName(pm) : "previous period"}</span>
               {a.anomaly && tone === "bad" && <Badge tone="bad">EXCEPTION · {a.multiple!.toFixed(1)}× normal move</Badge>}
             </div>
             <div className="ml-auto hidden flex-wrap items-center gap-2 pb-1 md:flex">
@@ -177,7 +177,7 @@ function ModalBody({ def, initialTab, initialState, onClose }: { def: KpiDef; in
             <div className="grid gap-4 md:grid-cols-3">
               <Stat label={`Current · ${monthShort(month)}`} value={formatKpiValue(def, value, true)} />
               <Stat label={`Previous · ${pm ? monthShort(pm) : "n/a"}`} value={formatKpiValue(def, a.delta?.previous ?? null, true)} />
-              <Stat label="Change vs Aug pace" value={a.delta ? (a.delta.kind === "pp" ? fmtPp(a.delta.value) : fmtSignedPct(a.delta.value)) : "n/a"} tone={tone === "neutral" ? undefined : tone} sub={a.baseline !== null ? `Typical move ≈ ${def.unit === "pct" ? fmtPp(a.baseline) : fmtSignedPct(a.baseline)}` : undefined} />
+              <Stat label="Change vs prior period" value={a.delta ? (a.delta.kind === "pp" ? fmtPp(a.delta.value) : fmtSignedPct(a.delta.value)) : "n/a"} tone={tone === "neutral" ? undefined : tone} sub={a.baseline !== null ? `Typical move ≈ ${def.unit === "pct" ? fmtPp(a.baseline) : fmtSignedPct(a.baseline)}` : undefined} />
             </div>
             <TabInsight text={describeTrend(model, def, month, focus)} sub={meaning} />
           </>
@@ -243,7 +243,7 @@ function ModalBody({ def, initialTab, initialState, onClose }: { def: KpiDef; in
                 );
               })}
             </div>
-            <TabInsight text={`Post ODD accounts for **${fmtPct0(snap.postPct)}** of ${where} cancellations (${fmtPp(pp("postPct"))} versus ${pm ? monthName(pm) : "prior month"}), with Pre ODD at ${fmtPct0(snap.prePct)} and On ODD at ${fmtPct0(snap.onPct)}. ${(pp("postPct") ?? 0) > 0.03 ? "Customers are increasingly lost after the committed date." : "The timing mix is broadly stable."}`} />
+            <TabInsight text={`Post ODD accounts for **${fmtPct0(snap.postPct)}** of ${where} cancellations (${fmtPp(pp("postPct"))} versus ${pm ? monthName(pm) : "previous period"}), with Pre ODD at ${fmtPct0(snap.prePct)} and On ODD at ${fmtPct0(snap.onPct)}. ${(pp("postPct") ?? 0) > 0.03 ? "Customers are increasingly lost after the committed date." : "The timing mix is broadly stable."}`} />
           </>
         )}
 
@@ -266,7 +266,7 @@ function ModalBody({ def, initialTab, initialState, onClose }: { def: KpiDef; in
             <Card className="p-5 sm:p-6">
               <div className="mb-3">
                 <div className="text-[15px] font-semibold">Customer Miss reasons · {focus && !focus.startsWith("ch:") ? focus : "Portfolio"} · {monthLabel(month)}</div>
-                <div className="text-xs text-mute">Ranked by volume; chips show the change against the prior month. Reasons are recorded by state.</div>
+                <div className="text-xs text-mute">Ranked by volume; chips show the change against the previous period. Reasons are recorded by state.</div>
               </div>
               <CustomerMissDrivers model={model} month={month} state={focus && !focus.startsWith("ch:") ? focus : null} />
             </Card>

@@ -24,8 +24,8 @@ export function buildCancellationsNarrative(model: DataModel, month: MonthKey, s
   const cMoM = s.cancels !== null && p?.cancels ? s.cancels / p.cancels - 1 : null;
   out.push({
     id: "volume", mode: "observed", label: "Volume", tone: (cMoM ?? 0) > 0.1 ? "bad" : "neutral",
-    text: `**${fmtInt(s.cancels)}** cancellations in ${where}, {{${(cMoM ?? 0) > 0.005 ? "bad" : (cMoM ?? 0) < -0.005 ? "good" : "neutral"}:${fmtSignedPct(cMoM)}}} vs ${pm ? monthName(pm) : "prior month"}. Cancel rate **${fmtPct(s.cancelRate)}**${p?.cancelRate != null ? ` (from ${fmtPct(p.cancelRate)})` : ""}.`,
-    evidence: { kind: "trend", scope, title: `${scope ?? "Portfolio"} cancel rate by day`, interpretation: (cMoM ?? 0) > 0.1 ? "The rate broke out of its usual range this month." : "The rate is within its usual range." },
+    text: `**${fmtInt(s.cancels)}** cancellations in ${where}, {{${(cMoM ?? 0) > 0.005 ? "bad" : (cMoM ?? 0) < -0.005 ? "good" : "neutral"}:${fmtSignedPct(cMoM)}}} vs ${pm ? monthName(pm) : "previous period"}. Cancel rate **${fmtPct(s.cancelRate)}**${p?.cancelRate != null ? ` (from ${fmtPct(p.cancelRate)})` : ""}.`,
+    evidence: { kind: "trend", scope, title: `${scope ?? "Portfolio"} cancel rate by day`, interpretation: (cMoM ?? 0) > 0.1 ? "The rate broke out of its usual range this period." : "The rate is within its usual range." },
   });
   if (s.postPct !== null) {
     const shift = p?.postPct != null ? s.postPct - p.postPct : null;
@@ -55,7 +55,7 @@ export function buildCancellationsNarrative(model: DataModel, month: MonthKey, s
   if (!scope && f.focus) {
     out.push({
       id: "where", mode: "observed", label: "Where", tone: "bad",
-      text: `${stateLink(f.focus.state, month)} contributes **${fmtPct0(f.focus.contribution)}** of the increase; ${f.focusSnap?.postPct != null ? `${fmtPct0(f.focusSnap.postPct)} of its cancellations are Post ODD.` : ""}`,
+      text: `${stateLink(f.focus.state, month)} contributes **${fmtPct0(f.focus.contribution)}** of the cancellations above normal; ${f.focusSnap?.postPct != null ? `${fmtPct0(f.focusSnap.postPct)} of its cancellations are Post ODD.` : ""}`,
       evidence: { kind: "ranking", dim: "state", metric: "cancels", highlight: [f.focus.state], title: "Cancellations by state", interpretation: `${f.focus.state} is the only state outside its normal range.` },
     });
   }
@@ -129,7 +129,7 @@ export function buildActionsNarrative(model: DataModel, month: MonthKey): Narrat
   if (rec.items.length) {
     out.push({
       id: "layers", mode: "preventive", label: "Recommended intervention", tone: "warn",
-      text: `Three actions answer the two ${monthName(month)} problems: ${listJoin(rec.items.map((r) => `${r.label.toLowerCase()} (**${fmtInt(r.saves)}**)`))}.${rec.dedup !== null ? ` About **${fmtInt(rec.dedup)}** cancellations avoided, each order counted once.` : ""}`,
+      text: `Three actions answer the two problems behind ${monthName(month)}: ${listJoin(rec.items.map((r) => `${r.label.toLowerCase()} (**${fmtInt(r.saves)}**)`))}.${rec.dedup !== null ? ` About **${fmtInt(rec.dedup)}** cancellations avoided, each order counted once.` : ""}`,
       evidence: { kind: "interventions", title: "Potential saves by intervention", interpretation: "Customer-contact rescue is the largest lever; sales quality verification is the fastest to start." },
     });
   }

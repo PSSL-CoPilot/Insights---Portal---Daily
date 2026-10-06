@@ -15,7 +15,7 @@ const iso = (y: number, m: number, d: number) => `${y}-${String(m + 1).padStart(
  * Travel-site style range picker: click a start date, then an end date (the range previews on hover);
  * click the same date twice for a single day. Only dates with data can be picked.
  */
-export function DateRangePicker({ dates, value, onChange }: { dates: string[]; value: string; onChange: (key: string) => void }) {
+export function DateRangePicker({ dates, value, onChange, presets }: { dates: string[]; value: string; onChange: (key: string) => void; presets: { label: string; key: string }[] }) {
   const [open, setOpen] = useState(false);
   const [start, end] = parseKey(value);
   const [draft, setDraft] = useState<string | null>(null); // first click, waiting for the end date
@@ -41,7 +41,6 @@ export function DateRangePicker({ dates, value, onChange }: { dates: string[]; v
     onChange(rangeKey(a, b));
     close();
   };
-  const apply = (a: string, b: string) => { onChange(rangeKey(a, b)); close(); };
 
   // What to paint: the committed range, or the draft previewed to the hovered date.
   const [lo, hi] = draft ? [draft, hover ?? draft].sort() : [start, end];
@@ -50,19 +49,14 @@ export function DateRangePicker({ dates, value, onChange }: { dates: string[]; v
   const lead = (new Date(Date.UTC(y, m, 1)).getUTCDay() + 6) % 7;
   const count = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
   const cells = [...Array(lead).fill(null), ...Array.from({ length: count }, (_, i) => iso(y, m, i + 1))];
-  const first = dates[0], last = dates[dates.length - 1];
   const days = (a: string, b: string) => dates.filter((d) => d >= a && d <= b).length;
-  const presets: [string, string, string][] = [
-    [`Latest day`, last, last],
-    ["Last 7 days", dates[Math.max(0, dates.length - 7)], last],
-    ["Month to date", first, last],
-  ];
 
   return (
     <div ref={box} className="relative">
       <button onClick={() => (open ? close() : (setPage(months.indexOf(end.slice(0, 7))), setOpen(true)))} aria-haspopup="dialog" aria-expanded={open}
         className="flex h-11 items-center gap-2 rounded-full border border-line/80 bg-card pl-4 pr-3 text-[13px] font-semibold text-ink shadow-card outline-none transition hover:shadow-pop focus-visible:ring-4 focus-visible:ring-brand/30 dark:border-white/[0.06]">
         <CalendarDays className="size-4 text-brand-2" />
+        {presets.find((p) => p.key === value) && <span className="hidden whitespace-nowrap text-mute md:inline">{presets.find((p) => p.key === value)!.label} ·</span>}
         <span className="whitespace-nowrap">{monthLabel(value)}</span>
         <ChevronDown className={cn("size-4 text-mute transition-transform", open && "rotate-180")} />
       </button>
@@ -71,13 +65,14 @@ export function DateRangePicker({ dates, value, onChange }: { dates: string[]; v
         {open && (
           <motion.div role="dialog" aria-label="Select dates"
             initial={{ opacity: 0, y: -6, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.98 }} transition={{ duration: 0.16, ease: "easeOut" }}
-            className="absolute right-0 top-[52px] z-50 w-[328px] origin-top-right rounded-[20px] border border-line/80 bg-card p-4 shadow-pop dark:border-white/[0.08]">
-            <div className="mb-3 flex flex-wrap gap-1.5">
-              {presets.map(([label, a, b]) => (
-                <button key={label} onClick={() => apply(a, b)}
-                  className={cn("rounded-full border px-3 py-1 text-[11.5px] font-semibold transition",
-                    start === a && end === b ? "border-brand-2 bg-brand-2 text-white" : "border-line/80 text-mute hover:border-brand-2/60 hover:text-ink dark:border-white/[0.08]")}>
-                  {label}
+            className="absolute right-0 top-[52px] z-50 w-[380px] max-w-[calc(100vw-32px)] origin-top-right rounded-[20px] border border-line/80 bg-card p-4 shadow-pop dark:border-white/[0.08]">
+            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-mute">Quick filters</div>
+            <div className="mb-3.5 flex flex-wrap gap-1.5">
+              {presets.map((p) => (
+                <button key={p.label} onClick={() => { onChange(p.key); close(); }}
+                  className={cn("rounded-full border px-3 py-1.5 text-[12px] font-semibold transition",
+                    value === p.key ? "border-brand-2 bg-brand-2 text-white" : "border-line/80 text-mute hover:border-brand-2/60 hover:text-ink dark:border-white/[0.08]")}>
+                  {p.label}
                 </button>
               ))}
             </div>

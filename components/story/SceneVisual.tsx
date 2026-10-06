@@ -121,7 +121,7 @@ export function SceneVisualView({ visual, actions }: { visual: SceneVisual; acti
                 </motion.div>
               ))}
             </div>
-            <div className="mt-4 flex items-center gap-2 text-[12px] text-mute"><span className="h-3 w-[2px] rounded bg-ink" /> Own January to August history</div>
+            <div className="mt-4 flex items-center gap-2 text-[12px] text-mute"><span className="h-3 w-[2px] rounded bg-ink" /> Own historical average</div>
           </Panel>
           {c && (
             <Panel title={c.agency}>
@@ -203,7 +203,7 @@ export function SceneVisualView({ visual, actions }: { visual: SceneVisual; acti
             </motion.div>
             <div className="grid gap-3 sm:grid-cols-2">
               {visual.parts.map((p, i) => (
-                <motion.div key={p.kind} {...rise(i, 0.5)} className={cn("rounded-2xl p-4", p.emphasis ? "bg-subtle" : "bg-subtle/50")}>
+                <motion.div key={p.kind} {...rise(i, 0.5)} className={cn("rounded-2xl p-4", p.emphasis ? "border border-line bg-card shadow-card" : "border border-line bg-card")}>
                   <div className="flex items-center gap-2 text-[12.5px] text-mute"><span className="h-2.5 w-5 rounded-full" style={{ background: color(p.kind) }} />{p.label}</div>
                   <div className="mt-1.5 flex items-baseline gap-2">
                     <span className={cn("num-display leading-none", p.emphasis ? "text-[34px]" : "text-[24px] text-ink-2")}>{fmtInt(p.cancels)}</span>
@@ -416,7 +416,7 @@ function MapLegend({ states }: { states: Extract<SceneVisual, { kind: "map" }>["
           </motion.div>
         ))}
       </div>
-      <div className="mt-2 text-center text-[11.5px] text-mute">Cancellation change vs August pace</div>
+      <div className="mt-2 text-center text-[11.5px] text-mute">Cancellation change vs the previous period</div>
     </div>
   );
 }

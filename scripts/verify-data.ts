@@ -1,5 +1,6 @@
 import { loadDataModel } from "../lib/data/excelLoader";
-import { fmtPct0 } from "../lib/format";
+import { fmtInt, fmtPct, fmtPct0, fmtSignedPct } from "../lib/format";
+import { getSnapshot } from "../lib/data/metrics";
 import { defaultKey, rangeModel } from "../lib/data/daily";
 const base = loadDataModel();
 const m = rangeModel(base, process.env.RANGE || defaultKey(base));
@@ -20,7 +21,7 @@ for (const r of ["Buyer’s Remorse", "Customer Requested Cancel", "No Access / 
 // ---------------------------------------------------------------- story reconciliation
 import { buildExecutiveNarrative, buildPlanNarrative, buildScopeNarrative } from "../lib/story/narrative";
 import { buildStoryScenes } from "../lib/story/scenes";
-import { storyFacts } from "../lib/story/facts";
+import { riskFactors, storyFacts } from "../lib/story/facts";
 import { buildActions } from "../lib/data/narratives";
 import { chScope } from "../lib/data/metrics";
 import { buildAgencyNarrative, buildOverviewNarrative, buildRepNarrative, buildStateChannelNarrative } from "../lib/story/analysis";
@@ -49,22 +50,58 @@ const ex = buildExecutiveNarrative(m, month);
 const exText = ex.points.map((p) => p.text).join(" ");
 check(exText.includes(`**${fmtPct0(f.drivers.contact?.share ?? null)}**`) && exText.includes(`**${fmtPct0(f.focusSnap?.pendingPct ?? null)}**`), "executive story states both the contact attribution and the Pending Customer Contact signal");
 check(ex.points.some((p) => p.id === "sales-quality") && ex.points.some((p) => p.id === "contact"), "executive story carries both causes");
-check((exText.match(/1,275/g) ?? []).length === 1, "1,275 appears once in the executive story (no double counting)");
+const totalSaves = fmtInt(f.interventions.total?.saves ?? null);
+check((exText.match(new RegExp(`\\*\\*${totalSaves}\\*\\*`, "g")) ?? []).length === 1, `${totalSaves} total saves appear once in the executive story (no double counting)`);
 const actions = buildActions(m, month);
 const saves = actions.reduce((a, x) => a + (x.saves ?? 0), 0);
 check(saves === layers, `action saves (${saves}) equal the three prevention layers, each counted once`);
 const scenes = buildStoryScenes(m, month);
 const ov = buildOverviewNarrative(m, month);
-check(ov.some((p) => p.id === "sales-quality") && ov.some((p) => p.id === "contact"), "Detailed Analysis overview names both September problems");
+check(ov.some((p) => p.id === "sales-quality") && ov.some((p) => p.id === "contact"), "Detailed Analysis overview names both problems");
 const ids = ex.points.map((p) => p.id);
 check(JSON.stringify(ids) === JSON.stringify(["portfolio", "detection", "geography", "channel", "sales-quality", "sales-prevention", "contact", "timing", "high-value", "outlook", "action"]), `story order: ${ids.join(" > ")}`);
 check(ex.points[ids.indexOf("sales-prevention")]?.mode === "preventive" && ex.points[ids.indexOf("sales-quality")]?.mode === "observed", "sales quality prevention follows the problem and is marked forward-looking");
-check(/\{\{bad:\+\d+%\}\}/.test(ex.headline) && /\{\{good:\+\d+%\}\}/.test(ex.headline), `quantified headline: ${ex.headline}`);
+check(/cancellations increased \{\{bad:\d+%\}\} while Unique Sales increased \{\{good:\d+%\}\}/i.test(ex.headline), `quantified headline: ${ex.headline}`);
 const sp = ex.points.find((p) => p.id === "sales-prevention")!;
-check(sp.text.includes("6,700") && sp.text.includes("**500**") && f.riskyOrders.projected === 3422, "October sales quality prevention uses the forecast orders (6,700; 3,422 projected) and the 500 saves");
+check(sp.text.includes(fmtInt(f.riskyOrders.orders)) && sp.text.includes(`**${fmtInt(f.interventions.sales?.saves ?? null)}**`) && /^rep risk/i.test(sp.text.split("risk factors: ")[1] ?? "") && riskFactors(f).every((x, i, a) => !i || (a[i - 1].v ?? 0) >= (x.v ?? 0)) && riskFactors(f)[0].id === "rep", `sales quality prevention uses the forecast orders (${fmtInt(f.riskyOrders.orders)}), the ${f.interventions.sales?.saves} saves and the five risk factors, rep risk highest, in descending order`);
 check(ex.points.find((p) => p.id === "sales-quality")?.evidence?.kind === "sales-quality", "sales quality insight carries agency and representative evidence");
 const hv = ex.points.find((p) => p.id === "high-value");
-check(!!hv && hv.mode === "preventive" && ["**650**", "**150**", "**185**", "**175**"].every((x) => hv.text.includes(x)), "high-value customer protection uses the segmentation (650: 150 accelerate, 185 reset ODD) and 175 saves");
+check(!!hv && hv.mode === "preventive" && [f.highValue.total, f.highValue.accelerate?.orders, f.highValue.resetOdd?.orders, f.interventions.install?.saves].every((x) => hv.text.includes(`**${fmtInt(x ?? null)}**`)), `high-value customer protection uses the segmentation (${f.highValue.total}) and ${f.interventions.install?.saves} saves`);
+// Day-wise consistency: every quick filter tells the same story (same state, channels and partners).
+import { forecast, parseKey, presets, selScope, parseSel } from "../lib/data/daily";
+// Outlook from the selected date: next 5 days about 17.8% to 17.1%, next 30 days trending to about 16.4%.
+{
+  const o = m.daily!.outlook!;
+  // Shape of the outlook: about 4% lower over the next 5 days and about 8% lower over the next 30 days with the actions.
+  const drop = (x: typeof o[5]) => 1 - (x.rateWith ?? 0) / (x.rateNo ?? 1);
+  // Targets: next 5 days 18.3%, next 30 days 17.2% with the actions (from 19.4% without).
+  check(Math.abs((o[5].rateWith ?? 0) - 0.183) < 0.0006 && Math.abs((o[30].rateWith ?? 0) - 0.172) < 0.0006 && drop(o[30]) > drop(o[5]),
+    `outlook: next 5 days ${fmtPct(o[5].rateNo)} to ${fmtPct(o[5].rateWith)}, next 30 days ${fmtPct(o[30].rateNo)} to ${fmtPct(o[30].rateWith)}`);
+  check(f.interventions.total?.saves === o[30].avoided && f.forecast.intervention === o[30].rateWith, "actions, saves and the outlook come from the same next 30 days");
+  // Parts never add up to more than the whole: savings by state add up to the portfolio.
+  const byState = m.states.reduce((a, s) => a + forecast(m, 30, { states: [s] }).avoided, 0);
+  check(Math.abs(byState - o[30].avoided) <= m.states.length, `state savings add up to the portfolio (${byState} vs ${o[30].avoided})`);
+  // A combination snapshot equals the sum of its cells.
+  const sc = selScope({ states: ["North Carolina"], channels: ["D2D", "Digital Partner"] });
+  const combo = getSnapshot(m, month, sc), cells = m.stateChannel.filter((r) => r.state === "North Carolina" && (r.channel === "D2D" || r.channel === "Digital Partner"));
+  check(combo.cancels === cells.reduce((a, r) => a + (r.cancels ?? 0), 0) && combo.sales === cells.reduce((a, r) => a + (r.sales ?? 0), 0), `North Carolina D2D + Digital Partner combination = its cells (${combo.cancels} of ${combo.sales})`);
+  const ag = getSnapshot(m, month, selScope({ agencies: ["Agency Alpha"] }));
+  check(ag.cancels === m.story.agencies.find((a) => a.agency === "Agency Alpha")!.cancels, `Agency Alpha combination = its agency row (${ag.cancels})`);
+  void parseSel;
+}
+for (const p of presets(base)) {
+  const pm = rangeModel(base, p.key), pf = storyFacts(pm, p.key);
+  const ok = pf.focus?.state === f.focus?.state && pf.outlierChannels.map((c) => c.channel).sort().join() === f.outlierChannels.map((c) => c.channel).sort().join() && pf.weakAgencies.map((a) => a.agency).sort().join() === "Agency Alpha,Agency Beta,Agency Gamma";
+  const up = pf.d.cancelsMoM ?? 0;
+  // Comparison period: the same number of days just before (month to date: the same days of the previous month).
+  const [s0, e0] = parseKey(p.key), prevK = pm.baselineMonth, [ps, pe] = prevK ? parseKey(prevK) : ["", ""];
+  const len = (a: string, b: string) => pm.daily!.dates.filter((d) => d >= a && d <= b).length;
+  const prevOk = !!prevK && len(ps, pe) === len(s0, e0) && pe < s0;
+  // Short windows ending today: cancellations up 10 to 25% and sales up against the window just before.
+  const ds = pf.d.salesMoM ?? 0;
+  check(p.id === "30" || (up >= 0.1 && up <= 0.25 && ds > 0), `${p.label}: cancellations ${fmtSignedPct(up)}, Unique Sales ${fmtSignedPct(ds)} vs the previous equal period`);
+  check(ok && pf.d.anomaly && prevOk, `${p.label} vs ${prevK}: ${pf.focus?.state}, ${pf.outlierChannels.map((c) => c.channel).join(" + ")}, ${pf.weakAgencies.map((a) => a.agency.replace("Agency ", "")).join("/")}, cancellations ${fmtSignedPct(up)}`);
+}
 const seg = st.segments.filter((x) => !x.isTotal).reduce((a, x) => a + (x.orders ?? 0), 0);
 check(seg === st.segments.find((x) => x.isTotal)?.orders, `delivery-risk segments sum to the total (${seg})`);
 const scIds = buildStoryScenes(m, month).map((x) => x.id);

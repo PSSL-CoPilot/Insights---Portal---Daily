@@ -32,7 +32,7 @@ export function KPIGrid() {
               </button>
             )}
             <label className="relative block">
-              <span className="sr-only">Month</span>
+              <span className="sr-only">Period</span>
               <select
                 value={month}
                 onChange={(e) => setMonth(e.target.value)}

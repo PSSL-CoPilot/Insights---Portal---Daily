@@ -10,27 +10,62 @@ import { SegmentBar } from "../charts/SegmentBar";
 import { C, TipCard, axisProps } from "../charts/shared";
 import { getSnapshot, prevMonth, series } from "@/lib/data/metrics";
 import { storyFacts } from "@/lib/story/facts";
-import { fmtCompact, fmtInt, fmtPct, fmtPp, monthLabel, monthName, monthShort } from "@/lib/format";
+import { fmtCompact, fmtInt, fmtPct, fmtPct0, fmtPp, fmtSignedPct, monthLabel, monthName, monthShort } from "@/lib/format";
+import { parseKey, presets } from "@/lib/data/daily";
+import { cn } from "../ui/primitives";
 
 /** Three at-a-glance visuals between the executive story and the KPI cards. */
 export function OverviewStrip() {
-  const { model, month, openKpi } = useApp();
+  const { model, month, setMonth, openKpi } = useApp();
   const f = storyFacts(model, month);
   const s = getSnapshot(model, month, null);
   const pm = prevMonth(model, month);
   const p = pm ? getSnapshot(model, pm, null) : null;
 
+  // Day-wise: the chart shows the selected days (a single day shows the week ending on it).
+  const [start, end] = model.daily ? parseKey(month) : [null, null];
   const data = useMemo(() => {
     const sales = series(model, "sales", null), cancels = series(model, "cancels", null);
-    return model.months.filter((m) => m <= month).map((m, i) => ({ month: m, label: monthShort(m), sales: sales[i].value, cancels: cancels[i].value }));
-  }, [model, month]);
+    const rows = model.months.map((m, i) => ({ month: m, label: monthShort(m), sales: sales[i].value, cancels: cancels[i].value }));
+    if (!start || !end) return rows.filter((r) => r.month <= month);
+    const from = start === end ? model.months[Math.max(0, model.months.indexOf(end) - 6)] : start;
+    return rows.filter((r) => r.month >= from && r.month <= end);
+  }, [model, month, start, end]);
   const sel = data[data.length - 1];
+  const chips = model.daily ? (["30", "5", "7", "mtd"] as const).map((id) => presets(model).find((p) => p.id === id)!) : [];
+  const CHIP: Record<string, string> = { "30": "Last 30 Days", "5": "Last 5 Days", "7": "Last 7 Days", mtd: "Month-to-Date" };
+  const dS = f.d.salesMoM, dC = f.d.cancelsMoM;
   const gaugeMax = Math.max(0.3, (s.cancelRate ?? 0) * 1.3);
 
   return (
     <section aria-label="Overview" className="grid gap-4 lg:grid-cols-12">
       <Card className="p-5 sm:p-6 lg:col-span-6">
-        <Head title="Sales and cancellations" sub={`${monthShort(model.months[0])} to ${monthName(month)}`} onOpen={() => openKpi("cancels")} />
+        <Head title="Sales and cancellations" sub={model.daily ? `${monthLabel(month)} · daily` : `${monthShort(model.months[0])} to ${monthName(month)}`} onOpen={() => openKpi("cancels")} />
+        {chips.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-1.5" role="group" aria-label="Chart period">
+            {chips.map((p) => (
+              <button key={p.id} type="button" onClick={() => setMonth(p.key)} aria-pressed={month === p.key}
+                className={cn("rounded-full border px-3 py-1 text-[12px] font-semibold transition", month === p.key ? "border-ink bg-ink text-canvas" : "border-line text-mute hover:border-ink hover:text-ink")}>
+                {CHIP[p.id]}
+              </button>
+            ))}
+          </div>
+        )}
+        {model.daily && (
+          <div className="mt-3 grid grid-cols-3 gap-3">
+            {[
+              { l: "Unique Sales", v: fmtInt(s.sales), d: fmtSignedPct(dS), tone: (dS ?? 0) >= 0 ? "text-good" : "text-bad" },
+              { l: "Cancellations", v: fmtInt(s.cancels), d: fmtSignedPct(dC), tone: (dC ?? 0) > 0 ? "text-bad" : "text-good" },
+              { l: "Cancel rate", v: fmtPct(s.cancelRate), d: p?.cancelRate != null && s.cancelRate != null ? fmtPp(s.cancelRate - p.cancelRate) : "n/a", tone: (s.cancelRate ?? 0) > (p?.cancelRate ?? 0) ? "text-bad" : "text-good" },
+            ].map((x) => (
+              <div key={x.l} className="rounded-2xl border border-line bg-card px-3 py-2.5">
+                <div className="text-[11.5px] text-mute">{x.l}</div>
+                <div className="num-display mt-0.5 text-[20px] leading-none">{x.v}</div>
+                <div className={cn("mt-1 text-[11.5px] font-semibold", x.tone)}>{x.d} <span className="font-normal text-mute">vs prior period</span></div>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="mt-2 flex flex-wrap gap-5 text-[12px] text-mute">
           <span className="flex items-center gap-1.5"><span className="h-2 w-4 rounded-full bg-slate-soft" />Unique Sales</span>
           <span className="flex items-center gap-1.5"><span className="h-2 w-4 rounded-full" style={{ background: C.bad }} />Cancellations</span>
@@ -49,8 +84,8 @@ export function OverviewStrip() {
             </defs>
             <CartesianGrid vertical={false} stroke={C.grid} strokeDasharray="3 5" />
             <XAxis dataKey="label" {...axisProps} />
-            <YAxis yAxisId="s" {...axisProps} width={40} tickFormatter={(v: number) => fmtCompact(v, 0)} />
-            <YAxis yAxisId="c" orientation="right" {...axisProps} width={36} tickFormatter={(v: number) => fmtCompact(v, 0)} />
+            <YAxis yAxisId="s" {...axisProps} width={40} tickFormatter={(v: number) => (v >= 1000 && v < 10000 ? fmtCompact(v, 1) : fmtCompact(v, 0))} />
+            <YAxis yAxisId="c" orientation="right" {...axisProps} width={36} tickFormatter={(v: number) => (v >= 1000 && v < 10000 ? fmtCompact(v, 1) : fmtCompact(v, 0))} />
             <Tooltip
               cursor={{ stroke: "var(--color-line)", strokeWidth: 1 }}
               content={({ active, payload }) =>
@@ -70,6 +105,12 @@ export function OverviewStrip() {
             {sel?.cancels != null && <ReferenceDot yAxisId="c" x={sel.label} y={sel.cancels} r={5} fill="var(--color-card)" stroke={C.bad} strokeWidth={2.5} />}
           </AreaChart>
         </ResponsiveContainer>
+        {model.daily && dC !== null && dS !== null && (
+          <p className="mt-2 text-[12.5px] leading-relaxed text-ink-2">
+            {monthName(month)}: cancellations <strong className={dC > 0 ? "text-bad" : "text-good"}>{dC >= 0 ? "up" : "down"} {fmtPct0(Math.abs(dC))}</strong> and Unique Sales <strong className={dS >= 0 ? "text-good" : "text-bad"}>{dS >= 0 ? "up" : "down"} {fmtPct0(Math.abs(dS))}</strong> vs {pm ? monthName(pm) : "the previous period"}. The cancel rate is {fmtPct(s.cancelRate)}{f.baselineRate !== null ? <> against a {fmtPct(f.baselineRate)} norm</> : null}
+            {f.focus && f.d.anomaly ? <>; {f.focus.state} accounts for {fmtPct0(f.focus.contribution)} of the cancellations above normal.</> : <>, within the normal range.</>}
+          </p>
+        )}
       </Card>
 
       <Card className="flex flex-col p-5 sm:p-6 lg:col-span-3">

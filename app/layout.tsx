@@ -35,7 +35,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 ))}
               </ul>
               <p className="mt-5 text-sm text-mute">
-                Place <strong>Brightspeed_Cancellation_Data_Daily_Sep_2026.xlsx</strong> in the <code>/data</code> folder (or set <code>BRIGHTSPEED_DATA_FILE</code>) and refresh.
+                Place <strong>Brightspeed_Cancellation_Data_Daily_Oct_2026.xlsx</strong> in the <code>/data</code> folder (or set <code>BRIGHTSPEED_DATA_FILE</code>) and refresh.
               </p>
             </div>
           </div>

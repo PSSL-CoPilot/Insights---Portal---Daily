@@ -7,6 +7,7 @@ import { useApp } from "../AppContext";
 import { AskAnything } from "../ai/AskAnything";
 import { ProfileMenu } from "./ProfileMenu";
 import { DateRangePicker } from "./DateRangePicker";
+import { presets } from "@/lib/data/daily";
 import { MORE, NAV, BrandMark } from "./Sidebar";
 import { monthLabel } from "@/lib/format";
 import { analysisHref } from "@/lib/story/links";
@@ -82,7 +83,7 @@ export function TopBar() {
 
         <div className="ml-auto flex items-center gap-2.5">
           {model.daily ? (
-            <DateRangePicker dates={model.daily.dates} value={month} onChange={setMonth} />
+            <DateRangePicker dates={model.daily.dates} value={month} onChange={setMonth} presets={presets(model)} />
           ) : (
             <Select label="Period" value={month} onChange={setMonth} className="w-[196px]">
               {[...model.months].reverse().map((m) => (

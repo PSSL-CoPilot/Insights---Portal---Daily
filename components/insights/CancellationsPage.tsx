@@ -76,7 +76,7 @@ function FocusInsightCard({ kind }: { kind: FocusKind }) {
       </div>
       <div>
         <div className="mb-2 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-mute">
-          <span>{f.valueLabel} by state</span><span>{kind === "class" ? "Change" : "MoM"}</span>
+          <span>{f.valueLabel} by state</span><span>{kind === "class" ? "Change" : "vs prior"}</span>
         </div>
         <div className="space-y-1">
           {f.ranked.map((r) => {
@@ -141,7 +141,7 @@ function TimingView({ initialBucket }: { initialBucket: OddBucket | null }) {
                 <div>
                   <div className="num-display text-[46px] leading-none">{fmtPct0(cur)}</div>
                   <div className={cn("mt-2 text-[13px]", hot ? "text-white/60" : "text-mute")}>
-                    {fmtInt(s[x.cnt])} cancellations · <span className={cn("font-semibold", x.id === "post" && (d ?? 0) > 0.005 ? "text-bad" : x.id === "post" && (d ?? 0) < -0.005 ? "text-good" : "")}>{fmtPp(d)}</span> vs Aug pace
+                    {fmtInt(s[x.cnt])} cancellations · <span className={cn("font-semibold", x.id === "post" && (d ?? 0) > 0.005 ? "text-bad" : x.id === "post" && (d ?? 0) < -0.005 ? "text-good" : "")}>{fmtPp(d)}</span> vs prior period
                   </div>
                 </div>
                 <Sparkline values={spark} color={hot ? C.brand : ODD_COLORS[x.id] === C.brand ? "#e0a800" : x.id === "pre" ? C.slateDeep : C.orange} width={92} height={40} />
@@ -168,7 +168,7 @@ function TimingView({ initialBucket }: { initialBucket: OddBucket | null }) {
           <Tabs tabs={[{ id: "count", label: "Volume" }, { id: "pct", label: "Share" }]} value={mode} onChange={setMode} size="sm" />
         </div>
         <ODDTimingChart model={model} state={state} mode={mode} selected={month} focus={bucket} height={320} onSelectMonth={setMonth} />
-        <p className="mt-1 text-xs text-soft">The selected month is emphasised. Select a bar to change the month.</p>
+        <p className="mt-1 text-xs text-soft">The selected period ends on the emphasised day. Select a day to look at it on its own.</p>
       </Card>
 
       <Card className="p-5 sm:p-6">
@@ -255,7 +255,7 @@ function CustomerMissView() {
                 <th className="pb-2 font-semibold">Count</th>
                 <th className="pb-2 font-semibold">Share</th>
                 <th className="pb-2 font-semibold">Prior</th>
-                <th className="pb-2 font-semibold">vs Aug pace</th>
+                <th className="pb-2 font-semibold">vs prior period</th>
                 <th className="pb-2 pl-4 text-left font-semibold">Note</th>
               </tr>
             </thead>

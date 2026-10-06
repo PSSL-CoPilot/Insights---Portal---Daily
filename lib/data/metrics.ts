@@ -5,6 +5,7 @@
  */
 import type { DataModel, MonthKey, ReasonRow, StateMonthlyRow } from "./types";
 import { monthName } from "../format";
+import { SEL, parseSel, selectionSnapshot } from "./daily";
 
 export const nk = (v: unknown) =>
   String(v ?? "").toLowerCase().replace(/%/g, "pct").replace(/[^a-z0-9]/g, "");
@@ -88,12 +89,16 @@ export const kpiById = (id: string) => KPI_DEFS.find((k) => k.id === id);
 export const CH = "ch:";
 export const isChannel = (scope: string | null | undefined): scope is string => !!scope && scope.startsWith(CH);
 export const chScope = (channel: string) => `${CH}${channel}`;
-export const scopeName = (scope: string | null | undefined, fallback = "Portfolio") => (!scope ? fallback : isChannel(scope) ? scope.slice(CH.length) : scope);
+export const scopeName = (scope: string | null | undefined, fallback = "Portfolio") =>
+  !scope ? fallback : isChannel(scope) ? scope.slice(CH.length) : (scope as string).startsWith(SEL) ? Object.values(parseSel(scope)).flat().join(" · ") : scope;
 
 // ------------------------------------------------------------------ month helpers
 export const prevMonth = (m: DataModel, month: MonthKey): MonthKey | null => {
-  // Day-wise: the selected range against August at the same number of days, each single day against an August day.
-  if (m.baselineMonth) return month.includes("-avg") ? null : month === m.latestMonth ? m.baselineMonth : m.dayBaseline ?? null;
+  // Day-wise: the selection against its comparison period (the period just before it), a single day against the day before.
+  if (m.daily?.periods) {
+    if (month === m.latestMonth) return m.baselineMonth ?? null;
+    if (month.includes("~")) return null;
+  }
   const i = m.months.indexOf(month);
   return i > 0 ? m.months[i - 1] : null;
 };
@@ -125,6 +130,14 @@ export function getSnapshot(model: DataModel, month: MonthKey, state: string | n
   if (hit) return hit;
 
   const s: Snapshot = {};
+  if (state?.startsWith(SEL) && model.daily) {
+    const x = selectionSnapshot(model, month, state);
+    Object.assign(s, x.values);
+    for (const [label, v] of Object.entries(x.reasons)) s[`reason:${nk(label)}`] = v;
+    s.trueCancels = add(s.custMiss ?? null, s.coMiss ?? null);
+    byModel.set(ck, s);
+    return s;
+  }
   if (!state) {
     const mo = model.monthlyOverview.find((r) => r.month === month);
     const od = model.oddTiming.find((r) => r.month === month);
@@ -249,7 +262,7 @@ export function assess(model: DataModel, def: KpiDef, month: MonthKey, state: st
   const noise = model.daily?.days ? model.daily.noise / Math.sqrt(model.daily.days) : 0;
   const floor = Math.max(def.unit === "pct" ? 0.01 : 0.02, def.unit === "pct" ? noise * Math.abs(delta.previous) : noise);
   const hist = mo
-    ? mo.months.filter((x) => x < (model.daily!.start ?? month).slice(0, 7)).map((x) => ({ month: x, value: snapVal(getSnapshot(mo, x, state), def.key) }))
+    ? mo.months.filter((x) => x <= model.daily!.src).map((x) => ({ month: x, value: snapVal(getSnapshot(mo, x, state), def.key) }))
     : series(model, def.key, state).filter((p) => p.month < month);
   const moves: number[] = [];
   for (let i = 1; i < hist.length; i++) {
@@ -275,6 +288,22 @@ export function assess(model: DataModel, def: KpiDef, month: MonthKey, state: st
   return { status, anomaly, delta, baseline, multiple };
 }
 
+// ------------------------------------------------------------------ normal level (day-wise)
+const normalCache = new WeakMap<DataModel, Map<string, number | null>>();
+/** Day-wise: the scope's usual cancel rate, the average of its monthly rates before the daily data starts. */
+export function normalRate(model: DataModel, scope: string | null): number | null {
+  const mo = model.daily?.monthly;
+  if (!mo) return null;
+  let c = normalCache.get(mo);
+  if (!c) normalCache.set(mo, (c = new Map()));
+  const k = scope ?? "";
+  if (!c.has(k)) {
+    const v = mo.months.filter((x) => x <= model.daily!.src).map((x) => getSnapshot(mo, x, scope).cancelRate).filter((x): x is number => x !== null);
+    c.set(k, v.length ? v.reduce((a, b) => a + b, 0) / v.length : null);
+  }
+  return c.get(k) ?? null;
+}
+
 // ------------------------------------------------------------------ states
 export interface StateRow {
   state: string;
@@ -284,8 +313,11 @@ export interface StateRow {
   cancelRate: number | null;
   cancelsMoM: number | null;
   prevCancels: number | null;
-  /** Share of the portfolio's cancellation increase contributed by this state. */
+  /** Share of the portfolio's cancellation increase contributed by this state (day-wise: share of the cancellations above normal). */
   contribution: number | null;
+  /** Day-wise: the usual cancel rate and the cancellations above it. */
+  normal?: number | null;
+  excess?: number | null;
   postPct: number | null;
   custPct: number | null;
   pendingPct: number | null;
@@ -307,6 +339,17 @@ export function stateRows(model: DataModel, month: MonthKey): StateRow[] {
       postPct: s.postPct, custPct: s.custPct, pendingPct: s.pendingPct, onTimePct: s.onTimePct, snapshot: s,
     };
   });
+  return withExcess(model, rows, (r) => r.state);
+}
+
+/** Contribution: day-wise, each row's share of the cancellations above normal; otherwise its share of the cancellations above normal. */
+function withExcess<R extends Omit<StateRow, "state">>(model: DataModel, rows: R[], scope: (r: R) => string): R[] {
+  if (model.daily) {
+    rows.forEach((r) => { r.normal = normalRate(model, scope(r)); r.excess = r.normal !== null && r.cancels !== null && r.sales !== null ? r.cancels - r.sales * r.normal : null; });
+    const tot = rows.reduce((a, r) => a + Math.max(0, r.excess ?? 0), 0);
+    if (tot > 0) rows.forEach((r) => (r.contribution = r.excess == null ? null : Math.max(0, r.excess) / tot));
+    return rows;
+  }
   const totalInc = rows.reduce((a, r) => a + ((r.cancels ?? 0) - (r.prevCancels ?? 0)), 0);
   if (totalInc > 0) rows.forEach((r) => (r.contribution = r.prevCancels !== null && r.cancels !== null ? (r.cancels - r.prevCancels) / totalInc : null));
   return rows;
@@ -327,9 +370,7 @@ export function channelRows(model: DataModel, month: MonthKey): ChannelRow[] {
       postPct: s.postPct, custPct: s.custPct, pendingPct: s.pendingPct, onTimePct: s.onTimePct, snapshot: s,
     };
   });
-  const totalInc = rows.reduce((a, r) => a + ((r.cancels ?? 0) - (r.prevCancels ?? 0)), 0);
-  if (totalInc > 0) rows.forEach((r) => (r.contribution = r.prevCancels !== null && r.cancels !== null ? (r.cancels - r.prevCancels) / totalInc : null));
-  return rows;
+  return withExcess(model, rows, (r) => chScope(r.channel));
 }
 
 /** The channel contributing most to the cancellation increase. */
@@ -342,11 +383,13 @@ export function findFocusChannel(model: DataModel, month: MonthKey): ChannelRow 
 export function findHotspot(model: DataModel, month: MonthKey): StateRow | null {
   const rows = stateRows(model, month);
   if (!rows.length) return null;
+  // Day-wise: the state furthest above its own normal cancel rate.
+  if (model.daily) return [...rows].sort((a, b) => ((b.cancelRate ?? 0) - (b.normal ?? 0)) - ((a.cancelRate ?? 0) - (a.normal ?? 0)))[0];
   return [...rows].sort((a, b) => (b.cancelsMoM ?? -Infinity) - (a.cancelsMoM ?? -Infinity) || (b.cancels ?? 0) - (a.cancels ?? 0))[0];
 }
 
 // ------------------------------------------------------------------ portfolio-level derived facts
-/** Cancellations above what the prior-months average cancel rate would have produced on this month's sales. */
+/** Cancellations above what the prior-months average cancel rate would have produced on this period's sales. */
 export function excessCancels(model: DataModel, month: MonthKey, state: string | null = null) {
   const prior = model.baselineMonth ? [model.baselineMonth] : model.months.filter((m) => m < month);
   const rates = prior.map((m) => getSnapshot(model, m, state).cancelRate).filter((x): x is number => x !== null);
@@ -451,9 +494,9 @@ export function describeTrend(model: DataModel, def: KpiDef, month: MonthKey, st
   const chg = def.unit === "pct" ? `${a.delta.value >= 0 ? "+" : "−"}${Math.abs(a.delta.value * 100).toFixed(0)} pp` : `${a.delta.value >= 0 ? "+" : "−"}${Math.abs(a.delta.value * 100).toFixed(0)}%`;
   if (a.anomaly) {
     const verb = a.delta.value > 0 ? "jumped" : "dropped";
-    return `${scope} ${name} stayed within ${band(lo, hi)} from ${mname(first)} through ${mname(lastPrior)}, then ${verb} to ${fmt(a.delta.current)} in ${mname(month)} (${chg} vs August pace): about ${a.multiple!.toFixed(1)}× the usual day to day movement.`;
+    return `${scope} ${name} stayed within ${band(lo, hi)} from ${mname(first)} through ${mname(lastPrior)}, then ${verb} to ${fmt(a.delta.current)} in ${mname(month)} (${chg} vs the previous period): about ${a.multiple!.toFixed(1)}× the usual day to day movement.`;
   }
-  return `${scope} ${name} has moved within ${band(lo, hi)} since ${mname(first)}; ${mname(month)} came in at ${fmt(a.delta.current)} (${chg} vs August pace), which is within normal variation.`;
+  return `${scope} ${name} has moved within ${band(lo, hi)} since ${mname(first)}; ${mname(month)} came in at ${fmt(a.delta.current)} (${chg} vs the previous period), which is within normal variation.`;
 }
 
 /** An agency counts as deteriorating when its cancel rate runs this far above its own history. */

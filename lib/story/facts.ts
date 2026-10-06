@@ -44,7 +44,7 @@ export interface StoryFacts {
   outlierChannels: ChannelFact[];
   normalChannelRate: [number, number] | null;
   portfolioChannels: ChannelRow[];
-  /** True when the agency, attribution and forecast sheets describe this month and focus state. */
+  /** True when the agency, attribution and forecast sheets describe this period and focus state. */
   hasStory: boolean;
   weakAgencies: AgencySnapshotRow[];
   steadyAgencies: AgencySnapshotRow[];
@@ -63,7 +63,9 @@ export interface StoryFacts {
   riskyOrders: { channels: string[]; orders: number | null; projected: number | null; rate: number | null };
   /** Share of the deteriorating agencies' sales made by Critical band representatives. */
   criticalRepShare: number | null;
-  /** Delivery risk segmentation (cancellation risk x customer value x ODD x permit / construction readiness). */
+  /** Rep risk: share of the deteriorating agencies' sales made by High or Critical band representatives. */
+  repRiskShare: number | null;
+  /** Delivery risk segmentation (cancellation risk x Customer Lifetime Value (CLTV) x ODD x permit / construction readiness). */
   highValue: { total: number | null; accelerate: SegmentRow | null; resetOdd: SegmentRow | null; handOff: SegmentRow | null; standard: SegmentRow | null };
 }
 
@@ -84,6 +86,19 @@ const weighted = <T,>(rows: T[], w: (r: T) => number | null, v: (r: T) => number
   return den ? num / den : null;
 };
 
+/** The five sales quality risk factors for the deteriorating agencies, highest first. */
+export function riskFactors(f: StoryFacts): { id: string; label: string; short: string; v: number | null }[] {
+  const sg = f.signals;
+  return [
+    { id: "rep", label: "Rep risk (sales from High or Critical reps)", short: `rep risk (${pct(f.repRiskShare)} of sales from High or Critical reps)`, v: f.repRiskShare },
+    { id: "lowIntent", label: "Low intent in sales transcript", short: `low intent (${pct(sg.lowIntent)})`, v: sg.lowIntent },
+    { id: "promo", label: "Promotion sensitivity", short: `promotion sensitivity (${pct(sg.promo)})`, v: sg.promo },
+    { id: "competitor", label: "Competitor mentioned", short: `competitor mention (${pct(sg.competitor)})`, v: sg.competitor },
+    { id: "failedConfirm", label: "Price or offer mismatch (fails independent confirmation)", short: `price or offer mismatch (${pct(sg.failedConfirm)} fail independent confirmation)`, v: sg.failedConfirm },
+  ].sort((a, b) => (b.v ?? -1) - (a.v ?? -1));
+}
+const pct = (v: number | null) => (v === null ? "n/a" : `${Math.round(v * 100)}%`);
+
 export function storyFacts(model: DataModel, month: MonthKey): StoryFacts {
   let byMonth = cache.get(model);
   if (!byMonth) cache.set(model, (byMonth = new Map()));
@@ -97,7 +112,7 @@ export function storyFacts(model: DataModel, month: MonthKey): StoryFacts {
   const a = assess(model, kpiById("cancels")!, month, null);
   const st = model.story;
 
-  const focus = d.anomaly && d.hotspot && (d.hotspot.cancelsMoM ?? 0) > 0.15 ? d.hotspot : null;
+  const focus = d.anomaly && d.hotspot && (model.daily ? (d.hotspot.cancelRate ?? 0) - (d.hotspot.normal ?? 1) >= 0.03 : (d.hotspot.cancelsMoM ?? 0) > 0.15) ? d.hotspot : null;
   const others = stateRows(model, month).filter((r) => r.state !== focus?.state);
 
   // Channels inside the focus state (the state × channel cross view is published for the drill month).
@@ -107,12 +122,20 @@ export function storyFacts(model: DataModel, month: MonthKey): StoryFacts {
     .sort((x, y) => (y.rate ?? 0) - (x.rate ?? 0));
   const rates = focusChannels.map((c) => c.rate).filter((x): x is number => x !== null).sort((x, y) => x - y);
   const median = rates.length ? rates[Math.floor(rates.length / 2)] : null;
-  focusChannels.forEach((c) => (c.outlier = median !== null && c.rate !== null && c.rate - median >= CHANNEL_OUTLIER_GAP));
+  // Day-wise: which channels are the problem is read from the last 30 days, so every period names the same ones.
+  const ref = model.daily?.stable.channelRate;
+  const refRate = (c: ChannelFact) => (ref && focus ? ref[`${focus.state}|${c.channel}`] ?? null : c.rate);
+  const refRates = focusChannels.map(refRate).filter((x): x is number => x !== null).sort((x, y) => x - y);
+  const refMedian = ref ? (refRates.length ? refRates[Math.floor(refRates.length / 2)] : null) : median;
+  focusChannels.forEach((c) => { const r = refRate(c); c.outlier = refMedian !== null && r !== null && r - refMedian >= CHANNEL_OUTLIER_GAP; });
   const outlierChannels = focusChannels.filter((c) => c.outlier);
 
   const hasStory = !!focus && st.focusState === focus.state && st.month === month;
-  const weakAgencies = hasStory ? st.agencies.filter((x) => (x.gap ?? 0) >= AGENCY_GAP_THRESHOLD).sort((x, y) => (y.gap ?? 0) - (x.gap ?? 0)) : [];
-  const steadyAgencies = hasStory ? st.agencies.filter((x) => (x.gap ?? 0) < AGENCY_GAP_THRESHOLD) : [];
+  // Day-wise: the partners that broke from their own history over the last 30 days stay the named ones for any period.
+  const agencyRef = model.daily?.stable.agencyGap;
+  const isWeak = (x: (typeof st.agencies)[number]) => ((agencyRef ? agencyRef[x.agency] : x.gap) ?? 0) >= AGENCY_GAP_THRESHOLD;
+  const weakAgencies = hasStory ? st.agencies.filter(isWeak).sort((x, y) => (y.gap ?? 0) - (x.gap ?? 0)) : [];
+  const steadyAgencies = hasStory ? st.agencies.filter((x) => !isWeak(x)) : [];
   const weakNames = new Set(weakAgencies.map((x) => x.agency));
   const cohort = hasStory
     ? st.cohorts
@@ -157,7 +180,7 @@ export function storyFacts(model: DataModel, month: MonthKey): StoryFacts {
     reclassMoved: coRow?.adjusted != null && coRow.recorded != null ? coRow.adjusted - coRow.recorded : null,
     lateDrivers: reasonStats(model, month, focus?.state ?? null).filter((r) => r.lateStage && (r.mom ?? 0) > 0.25).sort((x, y) => (y.mom ?? 0) - (x.mom ?? 0)),
     forecast: hasStory
-      ? { month: st.forecastMonth, baseline: view("baseline"), prevActual: prev ? view("actual", prev) : null, actual: view("actual", month), noAction: view("noAction"), intervention: view("intervention") }
+      ? { month: st.forecastMonth, baseline: view("baseline"), prevActual: model.daily ? portPrev?.cancelRate ?? null : prev ? view("actual", prev) : null, actual: model.daily ? port.cancelRate : view("actual", month), noAction: view("noAction"), intervention: view("intervention") }
       : { month: null, baseline: null, prevActual: null, actual: null, noAction: null, intervention: null },
     forecastFocus,
     forecastOthers: hasStory ? range(st.forecastStates.filter((r) => !r.isTotal && r.state !== focus!.state).map((r) => r.rate)) : null,
@@ -165,6 +188,7 @@ export function storyFacts(model: DataModel, month: MonthKey): StoryFacts {
     riskyOrders: { channels: [], orders: null, projected: null, rate: null },
     highValue: { total: null, accelerate: null, resetOdd: null, handOff: null, standard: null },
     criticalRepShare: null,
+    repRiskShare: null,
     contactRisk: {
       orders: hasStory ? st.contactRisk[0]?.value ?? null : null,
       projected: hasStory ? st.contactRisk[1]?.value ?? null : null,
@@ -177,6 +201,7 @@ export function storyFacts(model: DataModel, month: MonthKey): StoryFacts {
     f.riskyOrders = { channels: rows.map((r) => r.channel), orders: rows.length ? orders : null, projected: rows.length ? projected : null, rate: orders ? projected / orders : null };
     const reps = st.reps.filter((r) => weakNames.has(r.agency));
     const total = reps.reduce((a, r) => a + (r.sales ?? 0), 0);
+    f.repRiskShare = total ? reps.filter((r) => /critical|high/i.test(r.band)).reduce((a, r) => a + (r.sales ?? 0), 0) / total : null;
     f.criticalRepShare = total ? reps.filter((r) => /critical/i.test(r.band)).reduce((a, r) => a + (r.sales ?? 0), 0) / total : null;
     const segs = st.segments.filter((x) => !x.isTotal);
     const pick = (re: RegExp) => segs.find((x) => re.test(x.action)) ?? null;

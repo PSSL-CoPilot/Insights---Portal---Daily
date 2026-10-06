@@ -4,7 +4,7 @@ import { createContext, Suspense, useCallback, useContext, useEffect, useMemo, u
 import { useSearchParams } from "next/navigation";
 import type { DataModel, MonthKey } from "@/lib/data/types";
 import { slugToState } from "@/lib/format";
-import { defaultKey, rangeModel, validKey } from "@/lib/data/daily";
+import { defaultKey, rangeModel, validKey, type Horizon } from "@/lib/data/daily";
 
 export interface KpiModalState {
   id: string;
@@ -18,6 +18,9 @@ interface AppCtx {
   /** Selected month (defaults to the latest month in the workbook). */
   month: MonthKey;
   setMonth: (m: MonthKey) => void;
+  /** Forward-looking horizon: next 5 or 30 days (30 by default). */
+  horizon: Horizon;
+  setHorizon: (h: Horizon) => void;
   /** Selected state, or null for "All states". */
   state: string | null;
   setState: (s: string | null) => void;
@@ -55,7 +58,8 @@ export function AppProviders({ model: base, children }: { model: DataModel; chil
   const latest = base.daily ? defaultKey(base) : base.latestMonth ?? base.months[base.months.length - 1] ?? "";
   const [month, setMonthRaw] = useState<MonthKey>(latest);
   const isValid = useCallback((m: MonthKey | null) => (base.daily ? validKey(base, m) : !!m && base.months.includes(m)), [base]);
-  const model = useMemo(() => (base.daily ? rangeModel(base, isValid(month) ? month : latest) : base), [base, month, latest, isValid]);
+  const [horizon, setHorizon] = useState<Horizon>(30);
+  const model = useMemo(() => (base.daily ? rangeModel(base, isValid(month) ? month : latest, horizon) : base), [base, month, latest, isValid, horizon]);
   const [state, setState] = useState<string | null>(null);
   const [kpiModal, setKpiModal] = useState<KpiModalState | null>(null);
   const [genieOpen, setGenieOpen] = useState(false);
@@ -104,8 +108,8 @@ export function AppProviders({ model: base, children }: { model: DataModel; chil
   );
 
   const value = useMemo<AppCtx>(
-    () => ({ model, month, setMonth, state, setState, kpiModal, openKpi, closeKpi, genieOpen, genieSeed, openGenie, closeGenie, sidebarCollapsed, toggleSidebar }),
-    [model, month, setMonth, state, kpiModal, openKpi, closeKpi, genieOpen, genieSeed, openGenie, closeGenie, sidebarCollapsed, toggleSidebar],
+    () => ({ model, month, setMonth, horizon, setHorizon, state, setState, kpiModal, openKpi, closeKpi, genieOpen, genieSeed, openGenie, closeGenie, sidebarCollapsed, toggleSidebar }),
+    [model, month, setMonth, horizon, state, kpiModal, openKpi, closeKpi, genieOpen, genieSeed, openGenie, closeGenie, sidebarCollapsed, toggleSidebar],
   );
 
   return (

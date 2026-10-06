@@ -40,7 +40,7 @@ export function CancelClassification({ model, month, state, compact }: { model: 
               <th className="pb-2 font-semibold">Class</th>
               <th className="pb-2 text-right font-semibold">Share</th>
               <th className="pb-2 text-right font-semibold">Cancels</th>
-              <th className="pb-2 text-right font-semibold">vs Aug pace</th>
+              <th className="pb-2 text-right font-semibold">vs prior period</th>
             </tr>
           </thead>
           <tbody>

@@ -69,11 +69,11 @@ export function ActionCard({ action, month, record, onUpdate, index = 0 }: { act
       </div>
 
       <dl className="mt-5 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-xl bg-subtle p-3.5">
+        <div className="rounded-xl border border-line bg-card p-3.5">
           <dt className="eyebrow flex items-center gap-1.5"><MapPin className="size-3" /> Market</dt>
           <dd className="mt-1 text-[15px] font-semibold">{action.market}</dd>
         </div>
-        <div className="rounded-xl bg-subtle p-3.5 sm:col-span-2">
+        <div className="rounded-xl border border-line bg-card p-3.5 sm:col-span-2">
           <dt className="eyebrow flex items-center gap-1.5"><Users className="size-3" /> Affected population</dt>
           <dd className="mt-1 flex items-baseline gap-2"><span className="num text-xl font-semibold">{action.population !== null ? fmtInt(action.population) : "n/a"}</span><span className="text-xs text-mute">{action.populationLabel}</span></dd>
         </div>
@@ -85,7 +85,7 @@ export function ActionCard({ action, month, record, onUpdate, index = 0 }: { act
       </div>
 
       {evidence && (
-        <div className="mt-4 animate-rise rounded-2xl border border-line bg-subtle p-4">
+        <div className="mt-4 animate-rise rounded-2xl border border-line bg-card p-4">
           <div className="eyebrow mb-2">Supporting evidence</div>
           <ul className="space-y-1.5 text-[13px] text-ink-2">
             {action.evidence.map((e) => <li key={e} className="flex gap-2"><span className="mt-2 size-1.5 shrink-0 rounded-full bg-indigo" />{e}</li>)}

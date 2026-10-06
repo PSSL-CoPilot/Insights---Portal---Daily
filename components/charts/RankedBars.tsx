@@ -48,7 +48,7 @@ export function RankedBars({ rows, max, className, dense }: { rows: RankedRow[];
               dense ? "py-2" : "py-2.5",
               "grid-cols-[minmax(150px,280px)_1fr_auto]",
               r.onClick && "cursor-pointer hover:bg-subtle",
-              r.emphasis && "bg-subtle",
+              r.emphasis && "bg-card ring-1 ring-line",
               r.dim && "opacity-60",
             )}
           >

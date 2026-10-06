@@ -12,11 +12,12 @@ import { Sparkline } from "../ui/Sparkline";
 import { NarrativeList } from "./NarrativeList";
 import { ActionsDrawer } from "./ActionsDrawer";
 import { DownloadSlidesButton } from "./SlideExport";
+import { HorizonToggle } from "./EvidencePanel";
 import { buildExecutiveNarrative } from "@/lib/story/narrative";
 import { buildStoryScenes } from "@/lib/story/scenes";
 import { storyFacts } from "@/lib/story/facts";
 import { series } from "@/lib/data/metrics";
-import { fmtCompact, fmtPct, fmtSignedPct, monthLabel, monthName } from "@/lib/format";
+import { fmtCompact, fmtPct, fmtPp, fmtSignedPct, monthLabel, monthName, monthShort } from "@/lib/format";
 
 // The player (and its map geometry) loads only when someone presses Play.
 const WhatHappenedPlayer = dynamic(() => import("./WhatHappenedPlayer").then((m) => m.WhatHappenedPlayer), { ssr: false });
@@ -26,8 +27,10 @@ const GOOD = "var(--color-good)";
 
 /** Command Center executive story: insight first, evidence on demand, then action. */
 export function ExecutiveStory() {
-  const { model, month } = useApp();
+  const { model, month, horizon } = useApp();
   const story = useMemo(() => buildExecutiveNarrative(model, month), [model, month]);
+  // Forward-looking panel: next 5 or 30 days from the selected end date (the same engine as the outlook and actions).
+  const outlook = model.daily?.outlook?.[horizon] ?? null;
   const scenes = useMemo(() => buildStoryScenes(model, month), [model, month]);
   const f = storyFacts(model, month);
   const profile = useProfile();
@@ -71,7 +74,9 @@ export function ExecutiveStory() {
               )}
             </div>
 
-            <h2 id="exec-summary" className="mt-6 text-[26px] font-medium leading-[1.12] tracking-[-0.03em] sm:whitespace-nowrap sm:text-[min(42px,3.9cqw)]">
+            {/* One line: the font shrinks with the sentence length (about half an em per character). */}
+            <h2 id="exec-summary" className="mt-6 text-[26px] font-medium leading-[1.12] tracking-[-0.03em] sm:whitespace-nowrap sm:text-[length:var(--hl)]"
+              style={{ ["--hl" as string]: `min(42px, ${(212 / Math.max(40, story.headline.replace(/\{\{\w+:([^}]*)\}\}/g, "$1").length)).toFixed(2)}cqw)` }}>
               <span className="bs-gradient-text block pb-1">Hey {firstName(profile.name) || "there"},</span>
               <RichText text={story.headline} />
             </h2>
@@ -97,38 +102,41 @@ export function ExecutiveStory() {
           </div>
 
           {/* headline numbers */}
-          <aside className="relative m-3 rounded-[22px] bg-subtle/80 p-6 sm:p-7 lg:ml-0">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-mute">{monthName(month)} vs Aug pace</div>
+          <aside className="relative m-3 rounded-[22px] border border-line bg-card p-6 shadow-card sm:p-7 lg:ml-0">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-mute">{monthName(month)} vs {f.prev ? monthName(f.prev) : "prior period"}</div>
             {f.prev ? (
               <div className="mt-5 space-y-6 lg:sticky lg:top-28">
                 <Stat label="Cancellations" value={fmtSignedPct(f.d.cancelsMoM)} color={up ? BAD : GOOD} sub={`${fmtCompact(f.port.cancels)} orders · cancel rate ${fmtPct(f.port.cancelRate)}`} spark={cancelSeries} big />
                 <div className="h-px bg-line" />
                 <Stat label="Unique Sales" value={fmtSignedPct(f.d.salesMoM)} color={(f.d.salesMoM ?? 0) >= 0 ? GOOD : BAD} sub={`${fmtCompact(f.port.sales)} sales`} spark={salesSeries} />
-                {f.forecast.noAction !== null && (
+                {outlook && (
                   <>
                     <div className="h-px bg-line" />
                     <div>
-                      <div className="flex items-center gap-2 text-[12.5px] text-mute">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
                         <span className="rounded-full bg-teal-soft px-2 py-[1px] text-[9.5px] font-bold uppercase tracking-[0.1em] text-teal">Forward-looking</span>
-                        {f.forecast.month ? monthName(f.forecast.month) : "Next month"}
+                        <HorizonToggle />
                       </div>
+                      <div className="mt-1.5 text-[12px] text-mute">{monthShort(outlook.from)} to {monthShort(outlook.to)}, from the selected date</div>
                       <div className="mt-2.5 flex items-baseline gap-2">
-                        <span className="num-display text-[30px] leading-none text-bad">{fmtPct(f.forecast.noAction)}</span>
+                        <span className="num-display text-[30px] leading-none text-bad">{fmtPct(outlook.rateNo)}</span>
                         <ArrowRight className="size-4 text-soft" />
-                        <span className="num-display text-[30px] leading-none text-teal">{fmtPct(f.forecast.intervention)}</span>
+                        <span className="num-display text-[30px] leading-none text-teal">{fmtPct(outlook.rateWith)}</span>
                       </div>
-                      <div className="mt-1.5 text-[12px] text-mute">No action vs targeted intervention</div>
+                      <div className="mt-1.5 text-[12px] text-mute">No action vs the three actions · about {outlook.avoided.toLocaleString("en-US")} cancellations avoided</div>
                     </div>
                   </>
                 )}
-                {f.d.anomaly && (f.d.salesMoM ?? 0) > 0 && (
+                {f.d.anomaly && f.baselineRate !== null && f.port.cancelRate !== null && (
                   <div className="rounded-2xl bg-card px-4 py-3 text-[13px] leading-snug text-ink-2 shadow-card">
-                    Cancellations are growing <strong className="bs-gradient-text">{((f.d.cancelsMoM ?? 0) / (f.d.salesMoM ?? 1)).toFixed(0)}×</strong> faster than sales.
+                    {(f.d.cancelsMoM ?? 0) > 0.02 && (f.d.salesMoM ?? 0) > 0.005 && (f.d.cancelsMoM ?? 0) / (f.d.salesMoM ?? 1) >= 1.5
+                      ? <>Cancellations are growing <strong className="bs-gradient-text">{((f.d.cancelsMoM ?? 0) / (f.d.salesMoM ?? 1)).toFixed(0)}×</strong> faster than sales.</>
+                      : <>The cancel rate is <strong className="bs-gradient-text">{fmtPp(f.port.cancelRate - f.baselineRate)}</strong> above the {fmtPct(f.baselineRate)} norm.</>}
                   </div>
                 )}
               </div>
             ) : (
-              <p className="mt-5 text-sm text-mute">First month in the dataset: no prior month is available for comparison.</p>
+              <p className="mt-5 text-sm text-mute">No earlier period is available for comparison.</p>
             )}
           </aside>
         </div>

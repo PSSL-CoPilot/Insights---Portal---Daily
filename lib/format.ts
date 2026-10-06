@@ -3,18 +3,19 @@ import type { MonthKey } from "./data/types";
 const MONTH_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 const isDay = (m: MonthKey) => m.length === 10;
-const isRange = (m: MonthKey) => m.includes("~") && !m.includes("-avg");
+const isRange = (m: MonthKey) => m.includes("~");
 const dayShort = (d: string) => `${MONTH_LONG[+d.slice(5, 7) - 1].slice(0, 3)} ${+d.slice(8, 10)}`;
 /** "2026-09-10~2026-09-03" → "Sep 3 to 10" (the key puts the end first so it sorts at its last day). */
 const rangeName = (m: MonthKey) => {
   const [end, start] = m.split("~");
   return start.slice(5, 7) === end.slice(5, 7) ? `${dayShort(start)} to ${+end.slice(8, 10)}` : `${dayShort(start)} to ${dayShort(end)}`;
 };
-/** Day-wise baseline keys ("2026-08-avg", "2026-08-avg~8"): August at the same number of days. */
-const isAvg = (m: MonthKey) => m.includes("-avg");
-export const monthShort = (m: MonthKey) => (isAvg(m) ? `${MONTH_LONG[+m.slice(5, 7) - 1].slice(0, 3)} pace` : isRange(m) ? rangeName(m) : isDay(m) ? dayShort(m) : MONTH_LONG[+m.slice(5, 7) - 1]?.slice(0, 3) ?? m);
-export const monthName = (m: MonthKey) => (isAvg(m) ? `${MONTH_LONG[+m.slice(5, 7) - 1]} pace` : isRange(m) ? rangeName(m) : isDay(m) ? dayShort(m) : MONTH_LONG[+m.slice(5, 7) - 1] ?? m);
-export const monthLabel = (m: MonthKey) => (isAvg(m) ? `${MONTH_LONG[+m.slice(5, 7) - 1]} pace, ${m.slice(0, 4)}` : isRange(m) ? `${rangeName(m)}, ${m.slice(0, 4)}` : isDay(m) ? `${dayShort(m)}, ${m.slice(0, 4)}` : `${monthName(m)} ${m.slice(0, 4)}`);
+/** Day-wise outlook keys: "next5" / "next30", the days after the selected end date. */
+const isNext = (m: MonthKey) => /^next\d+$/.test(m);
+const nextN = (m: MonthKey) => m.slice(4);
+export const monthShort = (m: MonthKey) => (isNext(m) ? `Next ${nextN(m)}d` : isRange(m) ? rangeName(m) : isDay(m) ? dayShort(m) : MONTH_LONG[+m.slice(5, 7) - 1]?.slice(0, 3) ?? m);
+export const monthName = (m: MonthKey) => (isNext(m) ? `Next ${nextN(m)} days` : isRange(m) ? rangeName(m) : isDay(m) ? dayShort(m) : MONTH_LONG[+m.slice(5, 7) - 1] ?? m);
+export const monthLabel = (m: MonthKey) => (isNext(m) ? `Next ${nextN(m)} days` : isRange(m) ? `${rangeName(m)}, ${m.slice(0, 4)}` : isDay(m) ? `${dayShort(m)}, ${m.slice(0, 4)}` : `${monthName(m)} ${m.slice(0, 4)}`);
 
 export const fmtInt = (v: number | null | undefined) => (v === null || v === undefined ? "n/a" : Math.round(v).toLocaleString("en-US"));
 
