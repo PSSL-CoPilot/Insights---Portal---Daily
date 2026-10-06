@@ -9,7 +9,8 @@ export function SettingsPage() {
   const { model } = useApp();
   const m = model.meta;
   const issues = [...model.issues].sort((a, b) => ({ error: 0, warn: 1, info: 2 })[a.level] - ({ error: 0, warn: 1, info: 2 })[b.level]);
-  const fmtDT = (s: string | null) => (s ? new Date(s).toLocaleString() : "n/a");
+  // Fixed locale and time zone, so the server and the browser render the same text.
+  const fmtDT = (s: string | null) => (s ? `${new Date(s).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" })} UTC` : "n/a");
 
   return (
     <div className="space-y-8">
@@ -25,8 +26,8 @@ export function SettingsPage() {
           <Badge tone={model.ok ? "good" : "bad"}>{model.ok ? "LOADED" : "PROBLEMS FOUND"}</Badge>
         </div>
         <dl className="mt-5 grid gap-3 sm:grid-cols-4">
-          <Info2 label="Months" value={`${model.months.length}`} sub={model.months.length ? `${monthLabel(model.months[0])} → ${monthLabel(model.months[model.months.length - 1])}` : ""} />
-          <Info2 label="Latest month (default)" value={model.latestMonth ? monthLabel(model.latestMonth) : "n/a"} />
+          <Info2 label={model.daily ? "Days of data" : "Months"} value={`${model.months.length}`} sub={model.months.length ? `${monthLabel(model.months[0])} → ${monthLabel(model.months[model.months.length - 1])}` : ""} />
+          <Info2 label={model.daily ? "Selected period" : "Latest month (default)"} value={model.latestMonth ? monthLabel(model.latestMonth) : "n/a"} />
           <Info2 label="States" value={`${model.states.length}`} sub={model.states.join(", ")} />
           <Info2 label="Channel data" value={model.channels ? "Present" : "Not provided"} sub={model.channels ? "Channels tab is live" : "Add a “Channel Monthly” sheet"} />
         </dl>

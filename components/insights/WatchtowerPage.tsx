@@ -12,6 +12,7 @@ import { C } from "../charts/shared";
 import { Donut } from "../charts/Donut";
 import { findHotspot, getSnapshot, prevMonth, reasonStats, watchSignals, type SignalRow } from "@/lib/data/metrics";
 import { fmtInt, fmtPct, fmtPct0, fmtPp, monthLabel, monthName, slugToState, stateSlug } from "@/lib/format";
+import { pendingLevel } from "@/lib/story/pages";
 
 const SIGNAL_META: Record<SignalRow["id"], { kpi?: string; tone: string; meaning: string }> = {
   noAction: { tone: C.slate, meaning: "No Watchtower warning before the cancellation; these were difficult to anticipate." },
@@ -76,7 +77,9 @@ export function WatchtowerPage() {
                 <p className="text-[15px] leading-relaxed text-ink-2">
                   <strong className="text-ink">{strongest.label}</strong> is the leading signal at <strong className="text-ink">{fmtPct0(strongest.pct)}</strong>
                   {prev?.[PREV_KEY[strongest.id]] != null && strongest.pct !== null ? <> ({fmtPp(strongest.pct - (prev[PREV_KEY[strongest.id]] as number))} versus {pm ? monthName(pm) : "previous period"})</> : null}.
-                  Customer contact warnings are materially stronger than technical or BSW risk, so most of what was visible in advance was a <em>customer engagement</em> issue that proactive outreach can address.
+                  {pendingLevel(model, month, scope).elevated
+                    ? <> Customer contact warnings are materially stronger than technical or BSW risk, so most of what was visible in advance was a <em>customer engagement</em> issue that proactive outreach can address.</>
+                    : <> That is in line with its usual level of {fmtPct0(pendingLevel(model, month, scope).normal)}, so there is no customer engagement problem to fix here.</>}
                 </p>
               )}
               <p className="text-xs text-soft">Signals describe orders that later cancelled; they indicate visibility, not proven preventability.</p>

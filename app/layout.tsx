@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import type { ReactNode } from "react";
 import "./globals.css";
 import { loadDataModel, workbookPath } from "@/lib/data/excelLoader";
@@ -47,7 +48,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+        <Script id="bs-theme" strategy="beforeInteractive">{THEME_SCRIPT}</Script>
       </head>
       <body>
         <AppProviders model={model}>

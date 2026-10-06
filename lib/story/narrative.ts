@@ -64,7 +64,7 @@ function portfolioPoint(f: StoryFacts): NarrativePoint {
   const M = monthName(f.month);
   const { d, port, portPrev } = f;
   if (!f.prev || d.cancelsMoM === null) {
-    return { id: "portfolio", mode: "observed", label: "Portfolio", tone: "neutral", text: `${M} is the first month in the dataset, so a month over month comparison is not available.` };
+    return { id: "portfolio", mode: "observed", label: "Portfolio", tone: "neutral", text: f.model.daily ? `**${fmtInt(port.cancels)}** cancellations in ${M} at a **${fmtPct(port.cancelRate)}** cancel rate, against a ${fmtPct(f.baselineRate)} norm. No earlier period of the same length is available to compare with.` : `${M} is the first month in the dataset, so a month over month comparison is not available.` };
   }
   if (!d.anomaly) {
     return {
@@ -95,7 +95,7 @@ function geographyPoint(f: StoryFacts): NarrativePoint | null {
   return {
     id: "geography", mode: "observed", label: "Geography", tone: "bad",
     text:
-      `${stateLink(h.state, f.month)} explains **${fmtPct0(h.contribution)}** of the cancellations above normal: cancellations **${fmtSignedPct(h.cancelsMoM)}** at a **${fmtPct(h.cancelRate)}** cancel rate.` +
+      `${stateLink(h.state, f.month)} explains **${fmtPct0(h.contribution)}** of the cancellations above normal${h.cancelsMoM !== null ? `: cancellations **${fmtSignedPct(h.cancelsMoM)}**` : ""} at a **${fmtPct(h.cancelRate)}** cancel rate.` +
       (f.otherGrowth ? ` The other ${n} states moved between ${growthRange(f.otherGrowth)}.` : ""),
     evidence: {
       kind: "ranking", dim: "state", metric: "cancels", highlight: [h.state], title: `Cancellations by state, ${monthName(f.month)}`,
@@ -197,7 +197,7 @@ function executivePoints(f: StoryFacts): NarrativePoint[] | null {
     id: "portfolio", mode: "observed", label: "Portfolio", tone: "bad",
     text: daily
       ? (daily.days === 1 ? `On ${M} cancellations reached **${fmtInt(port.cancels)}**` : `From ${M} (${daily.days} days) cancellations reached **${fmtInt(port.cancels)}**, about **${fmtInt(Math.round((port.cancels ?? 0) / daily.days!))}** a day`) +
-        `. The cancel rate is **${fmtPct(port.cancelRate)}**, against ${fmtPct(portPrev?.cancelRate)} in the previous period (${f.prev ? monthName(f.prev) : "n/a"}) and a ${fmtPct(f.baselineRate)} norm.`
+        `. The cancel rate is **${fmtPct(port.cancelRate)}**, against ${f.prev && portPrev?.cancelRate != null ? `${fmtPct(portPrev.cancelRate)} in the previous period (${monthName(f.prev)}) and ` : ""}a ${fmtPct(f.baselineRate)} norm.`
       : `Cancellations reached **${fmtInt(port.cancels)}**. The cancel rate rose from ${fmtPct(portPrev?.cancelRate)} to **${fmtPct(port.cancelRate)}**, well above the ${fmtPct(f.baselineRate)} norm.`,
     evidence: daily
       ? { kind: "trend", scope: null, title: "Daily cancel rate", interpretation: `The rate left its normal range on ${(() => { const x = daily.detection.find((r) => /^Portfolio/.test(r.signal)); return x?.date ? monthShort(x.date) : "the first flagged day"; })()} and has held near its new level since. Sales growth does not explain it.` }
@@ -225,7 +225,7 @@ function executivePoints(f: StoryFacts): NarrativePoint[] | null {
   out.push({
     id: "geography", mode: "observed", label: "Where", tone: "bad",
     text: daily
-      ? `${stateLink(focus.state, month)} accounts for **${fmtPct0(focus.contribution)}** of the cancellations above normal: its cancel rate is **${fmtPct(focus.cancelRate)}** against its usual ${fmtPct(focus.normal ?? null)} (cancellations ${fmtSignedPct(focus.cancelsMoM)} vs the previous period). The other states stay near normal${f.otherRate ? ` (${between(f.otherRate)})` : ""}.`
+      ? `${stateLink(focus.state, month)} accounts for **${fmtPct0(focus.contribution)}** of the cancellations above normal: its cancel rate is **${fmtPct(focus.cancelRate)}** against its usual ${fmtPct(focus.normal ?? null)}${focus.cancelsMoM !== null ? ` (cancellations ${fmtSignedPct(focus.cancelsMoM)} vs the previous period)` : ""}. The other states stay near normal${f.otherRate ? ` (${between(f.otherRate)})` : ""}.`
       : `${stateLink(focus.state, month)} drove **${fmtPct0(focus.contribution)}** of the cancellations above normal: its cancellations rose **${fmtSignedPct(focus.cancelsMoM)}**.`,
     evidence: { kind: "ranking", dim: "state", metric: "cancels", highlight: [focus.state], title: `Cancellations by state, ${M}`, interpretation: `${focus.state} is the only state outside its normal range.` },
   });
@@ -330,7 +330,10 @@ export function buildExecutiveNarrative(model: DataModel, month: MonthKey): Stor
   const { d } = f;
   let headline: string;
   let subhead: string | undefined;
-  if (!f.prev || d.cancelsMoM === null) headline = `${M}: baseline month`;
+  if (!f.prev || d.cancelsMoM === null) {
+    headline = model.daily ? `${M}: ${fmtInt(f.port.cancels)} cancellations at a ${fmtPct(f.port.cancelRate)} cancel rate` : `${M}: baseline month`;
+    if (model.daily) subhead = `No earlier period of the same length is available to compare with (the daily data starts on ${monthShort(model.daily.dates[0])}).`;
+  }
   else {
     headline = model.daily ? dailyHeadline(f) : `${M} cancellations ${toned(d.cancelsMoM, false)} vs Unique Sales ${toned(d.salesMoM, true)}`;
     if (!d.anomaly) subhead = "Performance is in line with trend.";

@@ -24,7 +24,7 @@ export function buildCancellationsNarrative(model: DataModel, month: MonthKey, s
   const cMoM = s.cancels !== null && p?.cancels ? s.cancels / p.cancels - 1 : null;
   out.push({
     id: "volume", mode: "observed", label: "Volume", tone: (cMoM ?? 0) > 0.1 ? "bad" : "neutral",
-    text: `**${fmtInt(s.cancels)}** cancellations in ${where}, {{${(cMoM ?? 0) > 0.005 ? "bad" : (cMoM ?? 0) < -0.005 ? "good" : "neutral"}:${fmtSignedPct(cMoM)}}} vs ${pm ? monthName(pm) : "previous period"}. Cancel rate **${fmtPct(s.cancelRate)}**${p?.cancelRate != null ? ` (from ${fmtPct(p.cancelRate)})` : ""}.`,
+    text: `**${fmtInt(s.cancels)}** cancellations in ${where}, ${cMoM === null ? "no earlier period to compare with" : `{{${cMoM > 0.005 ? "bad" : cMoM < -0.005 ? "good" : "neutral"}:${fmtSignedPct(cMoM)}}} vs ${pm ? monthName(pm) : "previous period"}`}. Cancel rate **${fmtPct(s.cancelRate)}**${p?.cancelRate != null ? ` (from ${fmtPct(p.cancelRate)})` : ""}.`,
     evidence: { kind: "trend", scope, title: `${scope ?? "Portfolio"} cancel rate by day`, interpretation: (cMoM ?? 0) > 0.1 ? "The rate broke out of its usual range this period." : "The rate is within its usual range." },
   });
   if (s.postPct !== null) {
@@ -63,6 +63,15 @@ export function buildCancellationsNarrative(model: DataModel, month: MonthKey, s
 }
 
 // ------------------------------------------------------------------ Watchtower
+/** Day-wise: is Pending Customer Contact above its usual level (its monthly average before the daily data) for this scope? */
+export function pendingLevel(model: DataModel, month: MonthKey, scope: string | null): { elevated: boolean; normal: number | null } {
+  const cur = getSnapshot(model, month, scope).pendingPct;
+  const mo = model.daily?.monthly;
+  const hist = mo ? mo.months.filter((x) => x <= model.daily!.src).map((x) => getSnapshot(mo, x, scope).pendingPct).filter((x): x is number => x !== null) : [];
+  const normal = hist.length ? hist.reduce((a, b) => a + b, 0) / hist.length : null;
+  return { elevated: normal === null ? true : (cur ?? 0) - normal >= 0.04, normal };
+}
+
 export function buildWatchtowerNarrative(model: DataModel, month: MonthKey, scope: string | null): NarrativePoint[] {
   const f = storyFacts(model, month);
   const sig = watchSignals(model, month, scope);
@@ -79,9 +88,12 @@ export function buildWatchtowerNarrative(model: DataModel, month: MonthKey, scop
     evidence: { kind: "watch", scope, title: "Watchtower state before cancellation", interpretation: "Most of the loss was visible before it happened." },
   }];
   if (pending?.pct != null) {
+    const pe = pendingLevel(model, month, scope);
     out.push({
-      id: "pending", mode: "observed", label: "Leading signal", tone: "bad",
-      text: `${link("Pending Customer Contact", hrefs.watchtower(month, scope))} leads at **${fmtPct0(pending.pct)}**${prev?.pendingPct != null ? ` (${fmtPp(pending.pct - prev.pendingPct)})` : ""}. Install in Jeopardy (${fmtPct0(s.jeopardyPct)}) and BSW Delay (${fmtPct0(s.bswPct)}) stay low: a customer engagement problem, not a build one.`,
+      id: "pending", mode: "observed", label: "Leading signal", tone: pe.elevated ? "bad" : "neutral",
+      text: pe.elevated
+        ? `${link("Pending Customer Contact", hrefs.watchtower(month, scope))} leads at **${fmtPct0(pending.pct)}**${prev?.pendingPct != null ? ` (${fmtPp(pending.pct - prev.pendingPct)})` : ""}. Install in Jeopardy (${fmtPct0(s.jeopardyPct)}) and BSW Delay (${fmtPct0(s.bswPct)}) stay low: a customer engagement problem, not a build one.`
+        : `${link("Pending Customer Contact", hrefs.watchtower(month, scope))} is the most common warning at **${fmtPct0(pending.pct)}**${prev?.pendingPct != null ? ` (${fmtPp(pending.pct - prev.pendingPct)})` : ""}, in line with its usual ${fmtPct0(pe.normal)}: no customer engagement problem here.`,
       evidence: { kind: "watch", scope, title: "Watchtower signals", interpretation: "Customer contact warnings are materially stronger than technical risk." },
     });
   }

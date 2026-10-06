@@ -5,6 +5,7 @@
  * trend, breakdown and insight questions. "Why" and "what next" questions fall through to the
  * narrative handlers, which are also computed from the data.
  */
+import { parseKey } from "../data/daily";
 import type { DataModel, MonthKey } from "../data/types";
 import {
   channelRows, chScope, getSnapshot, prevMonth, reasonStats, scopeName, series, stateRows, watchSignals, REASON_LABELS, nk, type Snapshot,
@@ -246,16 +247,18 @@ function dataAnswer(question: string, ctx: GenieContext): GenieAnswer | null {
   if (p.since || /trend|over time|month by month|each month|monthly|history|so far|since/.test(q)) {
     const m = p.metrics[0];
     const s = scopes[0];
-    const from = p.since ?? (p.months.length >= 2 ? p.months[0] : model.months[0]);
+    // Day-wise: by default the trend covers the selected period (a single day: the two weeks up to it).
+    const dailyFrom = () => { const [s0, e0] = parseKey(ctx.month); const i = model.months.indexOf(e0); return s0 !== e0 ? s0 : model.months[Math.max(0, i - 13)]; };
+    const from = p.since ?? (p.months.length >= 2 ? p.months[0] : model.daily ? dailyFrom() : model.months[0]);
     const to = p.months.length >= 2 ? p.months[p.months.length - 1] : ctx.month;
-    const pts = model.months.filter((x) => x >= from && x <= to).map((x) => ({ m: x, v: m.get(getSnapshot(model, x, s.scope)) }));
+    const pts = model.months.filter((x) => x >= from && x <= (model.daily ? parseKey(to)[1] : to)).map((x) => ({ m: x, v: m.get(getSnapshot(model, x, s.scope)) }));
     const a = pts[0]?.v ?? null, b = pts[pts.length - 1]?.v ?? null;
     const vals = pts.map((x) => x.v).filter((x): x is number => x !== null);
     const hi = pts.reduce((best, x) => ((x.v ?? -Infinity) > (best.v ?? -Infinity) ? x : best), pts[0]);
     return {
       intent: "trend",
-      text: `${m.label} for ${s.label} ${verb(m, a, b)} from **${fmtV(m, a)}** in ${monthName(from)} to **${fmtV(m, b)}** in ${monthName(to)} (${fmtD(m, a, b) ?? "n/a"}).\n\n` +
-        `Day by day: ${pts.map((x) => `${monthShort(x.m)} ${fmtV(m, x.v)}`).join(" · ")}.` +
+      text: `${m.label} for ${s.label} ${verb(m, a, b)} from **${fmtV(m, a)}** on ${monthName(pts[0]?.m ?? from)} to **${fmtV(m, b)}** on ${monthName(pts[pts.length - 1]?.m ?? to)} (${fmtD(m, a, b) ?? "no comparison"}).\n\n` +
+        `${pts.length > 14 ? "Last 14 days" : "Day by day"}: ${pts.slice(-14).map((x) => `${monthShort(x.m)} ${fmtV(m, x.v)}`).join(" · ")}.` +
         (vals.length > 2 ? `\n\nPeak: ${monthName(hi.m)} at ${fmtV(m, hi.v)}.` : ""),
       kpis: [kp(monthShort(from), fmtV(m, a)), kp(monthShort(to), fmtV(m, b), fmtD(m, a, b), toneD(m, a, b))],
       cta: { label: "Open Command Center", href: `/?month=${to}` },

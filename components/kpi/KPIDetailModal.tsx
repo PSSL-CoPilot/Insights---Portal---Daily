@@ -166,7 +166,7 @@ function ModalBody({ def, initialTab, initialState, onClose }: { def: KpiDef; in
             <Card className="p-5 sm:p-6">
               <div className="mb-1">
                 <div className="text-[15px] font-semibold">{def.label} · {model.months.length ? `${monthShort(model.months[0])} to ${monthShort(model.months[model.months.length - 1])}` : ""}</div>
-                <div className="text-xs text-mute">{where} · select a point to switch the month</div>
+                <div className="text-xs text-mute">{where} · select a point to look at that day</div>
               </div>
               {pts.filter((x) => x.value !== null).length < 2 ? (
                 <div className="py-16 text-center text-sm text-mute">Not enough history to draw a trend for {where}.</div>

@@ -136,7 +136,7 @@ export function focusInsight(model: DataModel, month: MonthKey, kind: FocusKind)
   const M = monthName(month);
 
   let text: string;
-  if (!pm) text = `${M} is the first month in the dataset; a ranking by change is not yet available.`;
+  if (!pm) text = model.daily ? `No earlier period of the same length is available for ${M}, so a ranking by change is not available.` : `${M} is the first month in the dataset; a ranking by change is not yet available.`;
   else if (!focusState) text = `${label} moved within the normal range in every state in ${M}. No focus state is required this period.`;
   else {
     const rest = ranked.slice(1).map((r) => r.growth).filter((x): x is number => x !== null);
@@ -364,7 +364,7 @@ export function buildActions(model: DataModel, month: MonthKey): ActionItem[] {
       population: r("resched"), populationLabel: `Reschedule driven cancellations (${monthName(month)})`,
       impact: "Prevent repeat reschedules from ending in cancellation through guided rebooking and agent follow up on the second request.",
       why: `Customer Requested Reschedule is among the fastest growing Customer Miss reasons in ${where}.`,
-      evidence: reasonStats(model, month, scope).filter((x) => x.lateStage).map((x) => `${x.label}: ${fmtInt(x.prevCount)} to ${fmtInt(x.count)} (${fmtSignedPct(x.mom)})`),
+      evidence: reasonStats(model, month, scope).filter((x) => x.lateStage).map((x) => (x.prevCount === null || x.mom === null ? `${x.label}: ${fmtInt(x.count)}` : `${x.label}: ${fmtInt(x.prevCount)} to ${fmtInt(x.count)} (${fmtSignedPct(x.mom)})`)),
       request: "Route every second reschedule request to a dedicated agent queue and offer the earliest available slot during the same interaction.",
       measures: ["Customer Requested Reschedule cancellations", "Share of reschedules rebooked within 7 days"],
       href: `/cancellations?tab=miss&${q}${scope ? `&state=${stateSlug(scope)}` : ""}`, hrefLabel: "Review Customer Miss",
@@ -375,9 +375,9 @@ export function buildActions(model: DataModel, month: MonthKey): ActionItem[] {
           market: scope ? `${scope}, ${fc.channel}` : fc.channel,
           population: fcSc?.cancels ?? fc.cancels, populationLabel: `${scope ? `${scope} ` : ""}${fc.channel} cancellations (${monthShort(month)})`,
           impact: "Improve install readiness at the point of sale: confirmed contact details, access information and customer availability.",
-          why: `${fc.channel} contributes ${fmtPct0(fc.contribution)} of the cancellation increase${fcSc ? `; the ${scope} ${fc.channel} cancel rate is ${fmtPct(fcSc.cancelRate)}` : ""}.`,
+          why: `${fc.channel} contributes ${fmtPct0(fc.contribution)} of the ${model.daily ? "cancellations above normal" : "cancellation increase"}${fcSc ? `; the ${scope} ${fc.channel} cancel rate is ${fmtPct(fcSc.cancelRate)}` : ""}.`,
           evidence: [
-            `${fc.channel} cancellations ${fmtSignedPct(fc.cancelsMoM)}; cancel rate ${fmtPct(fc.cancelRate)}`,
+            `${fc.channel} cancellations ${fc.cancelsMoM === null ? fmtInt(fc.cancels) : fmtSignedPct(fc.cancelsMoM)}; cancel rate ${fmtPct(fc.cancelRate)}`,
             ...(fcSc ? [`${scope} ${fc.channel}: ${fmtInt(fcSc.cancels)} cancellations, Post ODD ${fmtPct0(fcSc.postPct)}, Pending Customer Contact ${fmtPct0(fcSc.pendingPct)}`] : []),
           ],
           request: `Reinforce appointment expectation setting in the ${fc.channel} sales script, verify contact and access details at order entry, and review representative level cancellation rates weekly.`,
@@ -470,12 +470,12 @@ function withPreventionPlan(model: DataModel, month: MonthKey, list: ActionItem[
         ? { population: st.forecastChannels.filter((r) => !r.isTotal && channels.includes(r.channel)).reduce((a, r) => a + (r.sales ?? 0), 0), populationLabel: `${channels.join(" and ")} orders expected in the next 30 days, to score and verify` }
         : { population: weak.reduce((a, x) => a + (x.sales ?? 0), 0), populationLabel: `${monthShort(month)} sales through agencies running above their own history` }),
       impact: `${sales.action}. Potential saves: about ${fmtInt(sales.saves)} orders.`,
-      why: `${weak.map((a) => a.agency).join(", ")} run ${fmtPp(Math.min(...weak.map((a) => a.gap ?? 0)))} to ${fmtPp(Math.max(...weak.map((a) => a.gap ?? 0)))} above their own history${driver ? `; sales and agency quality is the primary cause of ${fmtInt(driver.cancels)} cancellations (${fmtPct0(driver.share)})` : ""}.`,
+      why: `${[...weak.map((a) => a.agency)].sort().reduce((s, a, i, all) => s + (i === 0 ? "" : i === all.length - 1 ? " and " : ", ") + a, "")} run ${fmtPp(Math.min(...weak.map((a) => a.gap ?? 0)))} to ${fmtPp(Math.max(...weak.map((a) => a.gap ?? 0)))} above their own history${driver ? `; sales and agency quality is the primary cause of ${fmtInt(driver.cancels)} cancellations (${fmtPct0(driver.share)})` : ""}.`,
       evidence: [
         ...weak.map((a) => `${a.agency} (${a.channel}): ${fmtPct(a.baseline)} history to ${fmtPct(a.cancelRate)} in ${monthShort(month)}${a.pattern ? `; ${a.pattern.toLowerCase()}` : ""}`),
         ...critical.slice(0, 2).map((c) => `${c.agency} ${c.cohort.toLowerCase()}: ${fmtPct0(c.salesShare)} of sales, ${fmtPct0(c.cancelShare)} of cancellations`),
       ],
-      request: "Independently verify orders that score high on low intent, promotion dependence, competitor mention or failed confirmation before installation is scheduled, and coach or pause Critical representatives.",
+      request: "Independently verify orders that score high on rep risk, promotion sensitivity, low intent, price or offer mismatch (failed confirmation) or competitor mention before installation is scheduled, and coach or pause Critical representatives.",
       measures: ["Critical representative share", ...channels.map((c) => `${hot.state} ${c} cancel rate`), "Share of risky orders verified before installation"],
       href: analysisHref({ agency: weak[0].agency }, month), hrefLabel: `Open ${weak[0].agency} analysis`, saves: sales.saves,
     };

@@ -5,7 +5,7 @@
  */
 import type { DataModel, MonthKey, ReasonRow, StateMonthlyRow } from "./types";
 import { monthName } from "../format";
-import { SEL, parseSel, selectionSnapshot } from "./daily";
+import { SEL, parseKey, parseSel, selectionSnapshot } from "./daily";
 
 export const nk = (v: unknown) =>
   String(v ?? "").toLowerCase().replace(/%/g, "pct").replace(/[^a-z0-9]/g, "");
@@ -492,6 +492,14 @@ export function describeTrend(model: DataModel, def: KpiDef, month: MonthKey, st
   const first = model.months[0], lastPrior = prior.length ? pts[pts.length - 2].month : month;
   const mname = monthName;
   const chg = def.unit === "pct" ? `${a.delta.value >= 0 ? "+" : "−"}${Math.abs(a.delta.value * 100).toFixed(0)} pp` : `${a.delta.value >= 0 ? "+" : "−"}${Math.abs(a.delta.value * 100).toFixed(0)}%`;
+  // Day-wise: the period total is compared with its comparison period; the daily values give the range.
+  if (model.daily) {
+    const pm = prevMonth(model, month);
+    const [s0, e0] = parseKey(month);
+    const days = pts.filter((p) => p.month.length === 10 && p.month >= s0 && p.month <= e0).map((p) => p.value as number);
+    const span = days.length > 1 ? ` Day by day it ranged from ${fmt(Math.min(...days))} to ${fmt(Math.max(...days))}.` : "";
+    return `${scope} ${name}: ${fmt(a.delta.current)} in ${mname(month)} against ${fmt(a.delta.previous)} in ${pm ? mname(pm) : "the previous period"} (${chg}), ${a.anomaly ? `about ${a.multiple!.toFixed(1)}× the usual movement` : "within normal variation"}.${span}`;
+  }
   if (a.anomaly) {
     const verb = a.delta.value > 0 ? "jumped" : "dropped";
     return `${scope} ${name} stayed within ${band(lo, hi)} from ${mname(first)} through ${mname(lastPrior)}, then ${verb} to ${fmt(a.delta.current)} in ${mname(month)} (${chg} vs the previous period): about ${a.multiple!.toFixed(1)}× the usual day to day movement.`;

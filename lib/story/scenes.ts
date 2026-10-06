@@ -170,7 +170,7 @@ export function buildStoryScenes(model: DataModel, month: MonthKey): StoryScene[
   const cr = f.contactRisk;
   if (f.hasStory && cr.orders !== null) {
     add({
-      id: "contact-prevention", mode: "preventive", kicker: `${FM} prevention: customer contact`, duration: 11000,
+      id: "contact-prevention", mode: "preventive", kicker: `Prevention (${FM.toLowerCase()}): customer contact`, duration: 11000,
       title: "Rescue the customer-contact journey",
       body: `**${fmtInt(cr.orders)}** ${h.state} orders carry contact risk; about **${fmtInt(cr.projected)}** would cancel without help. Confirm, rebook, call and route by cause: about **${fmtInt(cr.protectable)}** cancellations avoided.`,
       visual: { kind: "contact", funnel: model.story.contactRisk.map((r) => ({ label: r.label, value: r.value })), rules: model.story.contactRules },
@@ -182,7 +182,7 @@ export function buildStoryScenes(model: DataModel, month: MonthKey): StoryScene[
   if (pt.has("outlook") && fc.noAction !== null) {
     add({
       id: "outlook", mode: "preventive", kicker: `${FM} outlook`, duration: 11000,
-      title: `${FM}: act now or it gets worse`,
+      title: `${FM}: act now to bring the rate down`,
       body: plain(pt.get("outlook")),
       visual: {
         kind: "outlook", saves: f.interventions.total?.saves ?? null,

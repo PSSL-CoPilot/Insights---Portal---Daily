@@ -116,7 +116,7 @@ export function buildAgencyNarrative(model: DataModel, month: MonthKey, a: Agenc
   const out: NarrativePoint[] = [{
     id: "agency-change", mode: "observed", label: `${a.agency} · ${a.channel}`, tone: weak ? "bad" : "good",
     text: weak
-      ? `Cancel rate **${fmtPct(a.cancelRate)}** in ${monthName(month)}, against its own history of ${fmtPct(a.baseline)} (**${fmtPp(a.gap)}**). Sales went from ${fmtInt(a.prevSales)}${P ? ` in ${monthName(P)}` : ""} to ${fmtInt(a.sales)}.`
+      ? `Cancel rate **${fmtPct(a.cancelRate)}** in ${monthName(month)}, against its own history of ${fmtPct(a.baseline)} (**${fmtPp(a.gap)}**). ${a.prevSales !== null && P ? `Sales went from ${fmtInt(a.prevSales)} in ${monthName(P)} to ${fmtInt(a.sales)}.` : `Sales: ${fmtInt(a.sales)}.`}`
       : `Performing normally: ${fmtPct(a.cancelRate)} cancel rate, close to its own history of ${fmtPct(a.baseline)} (${fmtPp(a.gap)}).`,
     evidence: { kind: "agency-trend", agency: a.agency, title: `${a.agency} 7 day cancel rate vs own history`, interpretation: weak ? "The rate tracked its own baseline, then broke away and has stayed above it." : "The rate stays inside its own historical range." },
   }];
@@ -139,12 +139,15 @@ export function buildAgencyNarrative(model: DataModel, month: MonthKey, a: Agenc
   const reps = st.reps.filter((r) => r.agency === a.agency && (r.sales ?? 0) > 0);
   if (reps.length) {
     const crit = reps.filter((r) => /critical/i.test(r.band)).sort((x, y) => (y.rate ?? 0) - (x.rate ?? 0));
-    const top = [...reps].sort((x, y) => (y.rate ?? 0) - (x.rate ?? 0))[0];
+    // The highest rep is read from each rep's last 30 days (bands use the same record); a few days of one rep's sales are too few.
+    const ref = model.daily?.monthly?.story.reps.filter((x) => x.agency === a.agency && (x.sales ?? 0) >= 10) ?? [];
+    const top = [...(ref.length ? ref : reps)].sort((x, y) => (y.rate ?? 0) - (x.rate ?? 0))[0];
+    const over = ref.length ? " over the last 30 days" : "";
     out.push({
       id: "agency-reps", mode: "observed", label: "Representatives", tone: crit.length ? "bad" : "neutral",
       text: crit.length
-        ? `**${crit.length} of ${reps.length}** representatives are in the Critical band (above 40%); the highest is ${repLink(top.id, month)} at **${fmtPct(top.rate)}** on ${fmtInt(top.sales)} sales.`
-        : `None of the ${reps.length} representatives is in the Critical band; the highest is ${repLink(top.id, month)} at ${fmtPct(top.rate)}.`,
+        ? `**${crit.length} of ${reps.length}** representatives are in the Critical band (above 40%); the highest${over} is ${repLink(top.id, month)} at **${fmtPct(top.rate)}** on ${fmtInt(top.sales)} sales.`
+        : `None of the ${reps.length} representatives is in the Critical band; the highest${over} is ${repLink(top.id, month)} at ${fmtPct(top.rate)}.`,
       evidence: { kind: "reps", agency: a.agency, highlight: top.id, title: `${a.agency} representatives by ${monthName(month)} cancel rate`, interpretation: "Select a representative below to see their individual signals." },
     });
   }
@@ -166,15 +169,17 @@ export function buildRepNarrative(model: DataModel, month: MonthKey, r: RepRow):
   const a = st.agencies.find((x) => x.agency === r.agency);
   const cohort = st.cohorts.find((c) => c.agency === r.agency && c.cohort === r.cohort);
   const crit = /critical/i.test(r.band);
+  const r30 = model.daily?.monthly?.story.reps.find((x) => x.id === r.id);
+  const small = (r.sales ?? 0) < 10 && r30 && (r30.sales ?? 0) > 0 ? ` A small sample: over the last 30 days ${r.id} cancelled ${fmtPct(r30.rate)} of ${fmtInt(r30.sales)} sales.` : "";
   const out: NarrativePoint[] = [{
     id: "rep", mode: "observed", label: `${r.id} · ${r.band || "n/a"} band`, tone: crit || /high/i.test(r.band) ? "bad" : "neutral",
-    text: `${r.id} (${agencyLink(r.agency, month)}, ${r.channel}, ${r.cohort}${r.tenure !== null ? `, ${fmtInt(r.tenure)} month${r.tenure === 1 ? "" : "s"} tenure` : ""}) cancelled **${fmtPct(r.rate)}** of ${fmtInt(r.sales)} ${monthName(month)} sales (${fmtInt(r.cancels)} cancellations).`,
+    text: `${r.id} (${agencyLink(r.agency, month)}, ${r.channel}, ${r.cohort}${r.tenure !== null ? `, ${fmtInt(r.tenure)} month${r.tenure === 1 ? "" : "s"} tenure` : ""}) ${(r.sales ?? 0) > 0 ? `cancelled **${fmtPct(r.rate)}** of ${fmtInt(r.sales)} sales in ${monthName(month)} (${fmtInt(r.cancels)} cancellations).` : `made no sales in ${monthName(month)}.`}${small}`,
     evidence: { kind: "reps", agency: r.agency, highlight: r.id, title: `${r.agency} representatives by cancel rate`, interpretation: `${r.id} is highlighted among the agency's representatives.` },
   }];
-  out.push({
+  if ((r.sales ?? 0) > 0) out.push({
     id: "rep-compare", mode: "observed", label: "Against peers", tone: (r.rate ?? 0) > (a?.cancelRate ?? 1) ? "bad" : "good",
     text: `${r.agency} runs at ${fmtPct(a?.cancelRate ?? null)}${cohort ? ` and this cohort at ${fmtPct(cohort.rate)}` : ""}; ${(r.rate ?? 0) > (a?.cancelRate ?? 1) ? "this rep is above both." : "this rep is at or below the agency."}` +
-      ((r.prevSales ?? 0) > 0 ? ` Previous period: ${fmtInt(r.prevCancels)} cancellations on ${fmtInt(r.prevSales)} sales.` : " New this period."),
+      ((r.prevSales ?? 0) > 0 ? ` Previous period: ${fmtInt(r.prevCancels)} cancellations on ${fmtInt(r.prevSales)} sales.` : " No sales in the previous period."),
   });
   if (r.lowIntent !== null) {
     const ref = steadySignals(model);
@@ -271,10 +276,13 @@ function buildComboNarrative(model: DataModel, month: MonthKey, sel: Selection):
     const weak = ags.filter((a) => f.weakAgencies.some((w) => w.agency === a.agency)), steady = ags.filter((a) => !weak.includes(a));
     const parent = getSnapshot(model, month, selScope({ states: focus ? [focus] : [], channels: [...new Set(ags.map((a) => a.channel))] }));
     const gaps = weak.map((a) => a.gap ?? 0);
+    const cell = `${focus} ${listJoin([...new Set(ags.map((a) => a.channel))])}`;
+    const share = weak.reduce((x, a) => x + (a.cancels ?? 0), 0) / (parent.cancels || 1);
+    const shareText = share >= 0.995 ? `${weak.length > 1 ? "account" : "accounts"} for all of ${cell} cancellations` : `${weak.length > 1 ? "make" : "makes"} **${fmtPct0(share)}** of ${cell} cancellations`;
     out.push({
       id: "combo-agencies", mode: "observed", label: "Who", tone: weak.length ? "bad" : "good",
       text: weak.length
-        ? `${listJoin(weak.map((a) => agencyLink(a.agency, month)))} ${weak.length > 1 ? "cancel" : "cancels"} ${gaps.length > 1 ? `${fmtPp(Math.min(...gaps))} to ${fmtPp(Math.max(...gaps))}` : fmtPp(gaps[0])} above ${weak.length > 1 ? "their" : "its"} own history and ${weak.length > 1 ? "make" : "makes"} **${fmtPct0(weak.reduce((x, a) => x + (a.cancels ?? 0), 0) / (parent.cancels || 1))}** of ${focus} ${listJoin([...new Set(ags.map((a) => a.channel))])} cancellations${steady.length ? `; ${listJoin(steady.map((a) => a.agency))} ${steady.length > 1 ? "stay" : "stays"} close to ${steady.length > 1 ? "their" : "its"} own history` : ""}.`
+        ? `${listJoin(weak.map((a) => agencyLink(a.agency, month)))} ${weak.length > 1 ? "cancel" : "cancels"} ${gaps.length > 1 ? `${fmtPp(Math.min(...gaps))} to ${fmtPp(Math.max(...gaps))}` : fmtPp(gaps[0])} above ${weak.length > 1 ? "their" : "its"} own history and ${shareText}${steady.length ? `; ${listJoin(steady.map((a) => a.agency))} ${steady.length > 1 ? "stay" : "stays"} close to ${steady.length > 1 ? "their" : "its"} own history` : ""}.`
         : `${listJoin(ags.map((a) => agencyLink(a.agency, month)))} ${ags.length > 1 ? "stay" : "stays"} close to ${ags.length > 1 ? "their" : "its"} own history: partner quality is not the issue here.`,
       evidence: A.length
         ? { kind: "reps", agency: A[0], agencies: A, title: `Representatives in ${listJoin(A)}`, interpretation: "Representative level detail for the selected agencies, by cancel rate for the selected dates." }

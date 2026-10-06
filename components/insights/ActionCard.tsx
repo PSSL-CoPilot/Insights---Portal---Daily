@@ -75,7 +75,7 @@ export function ActionCard({ action, month, record, onUpdate, index = 0 }: { act
         </div>
         <div className="rounded-xl border border-line bg-card p-3.5 sm:col-span-2">
           <dt className="eyebrow flex items-center gap-1.5"><Users className="size-3" /> Affected population</dt>
-          <dd className="mt-1 flex items-baseline gap-2"><span className="num text-xl font-semibold">{action.population !== null ? fmtInt(action.population) : "n/a"}</span><span className="text-xs text-mute">{action.populationLabel}</span></dd>
+          <dd className="mt-1 flex items-baseline gap-2"><span className="num text-xl font-semibold">{action.population !== null ? fmtInt(action.population) : "Not applicable"}</span><span className="text-xs text-mute">{action.populationLabel}</span></dd>
         </div>
       </dl>
 
