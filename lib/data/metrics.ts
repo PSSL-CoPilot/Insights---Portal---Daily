@@ -217,8 +217,28 @@ export interface SeriesPoint {
   value: number | null;
 }
 
+/** Days a chart shows. Day-wise: the selected days, or the week ending on a selected single day; otherwise every month. */
+export function chartDays(model: DataModel): MonthKey[] {
+  const D = model.daily;
+  if (!D?.start || !D.end) return model.months;
+  const days = model.months.filter((x) => x >= D.start! && x <= D.end!);
+  if (days.length > 1) return days;
+  const i = model.months.indexOf(D.end);
+  return model.months.slice(Math.max(0, i - 6), i + 1);
+}
+
 export function series(model: DataModel, key: string, state: string | null): SeriesPoint[] {
-  return model.months.map((month) => ({ month, value: snapVal(getSnapshot(model, month, state), key) }));
+  return chartDays(model).map((month) => ({ month, value: snapVal(getSnapshot(model, month, state), key) }));
+}
+
+/** Day-wise: the comparison period's level for a chart's dashed line (a rate, or a count per day). */
+export function periodReference(model: DataModel, month: MonthKey, key: string, state: string | null, unit: KpiUnit): { value: number | null; label: string } | undefined {
+  if (!model.daily) return undefined;
+  const pm = prevMonth(model, month);
+  if (!pm) return { value: null, label: "" };
+  const v = snapVal(getSnapshot(model, pm, state), key);
+  const days = model.daily.periods?.[pm]?.length ?? 1;
+  return { value: v === null ? null : unit === "pct" ? v : v / days, label: `${monthName(pm)}${unit === "pct" || days === 1 ? "" : " daily avg"}` };
 }
 
 export function kpiDelta(model: DataModel, def: KpiDef, month: MonthKey, state: string | null): Delta | null {

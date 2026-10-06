@@ -18,7 +18,7 @@ import { analysisHref } from "@/lib/story/links";
 import { C, TipCard, axisProps } from "../charts/shared";
 import { cn } from "../ui/primitives";
 import { ChannelIcon } from "./ChannelIcon";
-import { assess, isChannel, kpiById, scopeName, series } from "@/lib/data/metrics";
+import { assess, isChannel, kpiById, periodReference, scopeName, series } from "@/lib/data/metrics";
 import { riskFactors as factorsHighestFirst, storyFacts } from "@/lib/story/facts";
 import { agencyCoaching, buildRecommendations } from "@/lib/story/narrative";
 import type { EvidenceSpec } from "@/lib/story/types";
@@ -113,7 +113,7 @@ function EvidenceBody({ spec }: { spec: EvidenceSpec }) {
   switch (spec.kind) {
     case "trend": {
       const a = assess(model, kpiById("cancels")!, month, spec.scope);
-      return <TrendChart points={series(model, "cancelRate", spec.scope).filter((p) => p.month <= month)} unit="pct" color={a.anomaly ? C.bad : C.indigo} selected={month} anomaly={a.anomaly} height={190} name={`${scopeName(spec.scope)} cancel rate`} />;
+      return <TrendChart points={series(model, "cancelRate", spec.scope)} reference={periodReference(model, month, "cancelRate", spec.scope, "pct")} unit="pct" color={a.anomaly ? C.bad : C.indigo} selected={month} anomaly={a.anomaly} height={190} name={`${scopeName(spec.scope)} cancel rate`} />;
     }
     case "ranking": {
       const { rows } = planRows(model, month, spec.dim);

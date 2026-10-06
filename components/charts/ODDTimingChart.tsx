@@ -4,7 +4,7 @@ import { Bar, BarChart, CartesianGrid, Cell, Legend, ResponsiveContainer, Toolti
 import { C, TipCard, axisProps } from "./shared";
 import { fmtCompact, fmtInt, fmtPct0, monthLabel, monthShort } from "@/lib/format";
 import type { DataModel, MonthKey } from "@/lib/data/types";
-import { getSnapshot } from "@/lib/data/metrics";
+import { chartDays, getSnapshot } from "@/lib/data/metrics";
 
 export const ODD_COLORS = { pre: "#c9c9c1", on: C.brand, post: C.orange } as const;
 export type OddBucket = "pre" | "on" | "post";
@@ -22,7 +22,7 @@ export function ODDTimingChart({
   height?: number;
   onSelectMonth?: (m: MonthKey) => void;
 }) {
-  const data = model.months.map((month) => {
+  const data = chartDays(model).map((month) => {
     const s = getSnapshot(model, month, state);
     return {
       month, label: monthShort(month),

@@ -17,6 +17,7 @@ import { ChannelBreakdown } from "./ChannelBreakdown";
 import { formatCompactKpi, formatKpiValue } from "./KPICard";
 import {
   assess, chScope, describeTrend, getSnapshot, kpiById, kpiMeaning, prevMonth, reasonStats, scopeName, series, snapVal, watchSignals, type KpiDef,
+  chartDays, periodReference,
 } from "@/lib/data/metrics";
 import type { DataModel, MonthKey } from "@/lib/data/types";
 import { fmtInt, fmtPct, fmtPct0, fmtPp, fmtSignedPct, monthLabel, monthName, monthShort, stateSlug } from "@/lib/format";
@@ -165,13 +166,13 @@ function ModalBody({ def, initialTab, initialState, onClose }: { def: KpiDef; in
           <>
             <Card className="p-5 sm:p-6">
               <div className="mb-1">
-                <div className="text-[15px] font-semibold">{def.label} · {model.months.length ? `${monthShort(model.months[0])} to ${monthShort(model.months[model.months.length - 1])}` : ""}</div>
+                <div className="text-[15px] font-semibold">{def.label} · {pts.length ? `${monthShort(pts[0].month)} to ${monthShort(pts[pts.length - 1].month)}` : ""}</div>
                 <div className="text-xs text-mute">{where} · select a point to look at that day</div>
               </div>
               {pts.filter((x) => x.value !== null).length < 2 ? (
                 <div className="py-16 text-center text-sm text-mute">Not enough history to draw a trend for {where}.</div>
               ) : (
-                <TrendChart points={pts} unit={def.unit} color={tone === "good" ? "#12a150" : tone === "bad" ? "#d92d20" : undefined} selected={month} anomaly={a.anomaly && tone === "bad"} name={def.label} onSelectMonth={setMonth} />
+                <TrendChart points={pts} reference={periodReference(model, month, def.key, focus, def.unit)} unit={def.unit} color={tone === "good" ? "#12a150" : tone === "bad" ? "#d92d20" : undefined} selected={month} anomaly={a.anomaly && tone === "bad"} name={def.label} onSelectMonth={setMonth} />
               )}
             </Card>
             <div className="grid gap-4 md:grid-cols-3">
@@ -255,7 +256,7 @@ function ModalBody({ def, initialTab, initialState, onClose }: { def: KpiDef; in
             </Card>
             <Card className="p-5 sm:p-6">
               <div className="mb-1 text-[15px] font-semibold">Customer Miss share over time</div>
-              <TrendChart points={series(model, "custPct", focus)} unit="pct" selected={month} name="Customer Miss %" height={220} onSelectMonth={setMonth} />
+              <TrendChart points={series(model, "custPct", focus)} reference={periodReference(model, month, "custPct", focus, "pct")} unit="pct" selected={month} name="Customer Miss %" height={220} onSelectMonth={setMonth} />
             </Card>
             <TabInsight text={`Customer Miss is **${fmtPct0(snap.custPct)}** of ${where} cancellations (${fmtPp(pp("custPct"))}), Company Miss ${fmtPct0(snap.coPct)} (${fmtPp(pp("coPct"))}). ${(pp("custPct") ?? 0) > 0.01 ? "The shift is toward customer side causes, pointing to engagement rather than operations." : "Responsibility mix is broadly unchanged."}`} />
           </>

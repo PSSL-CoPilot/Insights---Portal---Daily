@@ -8,6 +8,7 @@ import type { DataModel, MonthKey, RepRow } from "@/lib/data/types";
 import { fmtInt, fmtPct, fmtPct0, monthLabel, monthShort } from "@/lib/format";
 import { steadySignals } from "@/lib/story/analysis";
 import { agencyDays } from "@/lib/data/daily";
+import { chartDays } from "@/lib/data/metrics";
 
 const ease = [0.2, 0.8, 0.2, 1] as const;
 
@@ -79,7 +80,8 @@ export function RepSignals({ model, rep }: { model: DataModel; rep: string }) {
 
 /** Agency cancel rate over time (day-wise: 7 day rolling, by day) with its own historical baseline. */
 export function AgencyTrend({ model, agency, month, height = 220 }: { model: DataModel; agency: string; month: MonthKey; height?: number }) {
-  const rows = model.daily ? agencyDays(model, agency) : model.story.agencyMonthly.filter((r) => r.agency === agency && r.month <= month).sort((a, b) => a.month.localeCompare(b.month));
+  const shown = new Set(chartDays(model));
+  const rows = model.daily ? agencyDays(model, agency).filter((r) => shown.has(r.month)) : model.story.agencyMonthly.filter((r) => r.agency === agency && r.month <= month).sort((a, b) => a.month.localeCompare(b.month));
   if (!rows.length) return <div className="py-6 text-center text-[13px] text-mute">Detail is not available for {agency}.</div>;
   const baseline = model.story.agencies.find((a) => a.agency === agency)?.baseline ?? null;
   const data = rows.map((r) => ({ month: r.month, label: monthShort(r.month), rate: r.cancelRate, sales: r.sales, cancels: r.cancels }));

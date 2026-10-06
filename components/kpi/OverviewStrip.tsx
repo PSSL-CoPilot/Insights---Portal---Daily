@@ -8,10 +8,10 @@ import { Card } from "../ui/primitives";
 import { Gauge } from "../charts/Gauge";
 import { SegmentBar } from "../charts/SegmentBar";
 import { C, TipCard, axisProps } from "../charts/shared";
-import { getSnapshot, prevMonth, series } from "@/lib/data/metrics";
+import { chartDays, getSnapshot, prevMonth, series } from "@/lib/data/metrics";
 import { storyFacts } from "@/lib/story/facts";
 import { fmtCompact, fmtInt, fmtPct, fmtPct0, fmtPp, fmtSignedPct, monthLabel, monthName, monthShort } from "@/lib/format";
-import { parseKey, presets } from "@/lib/data/daily";
+import { presets } from "@/lib/data/daily";
 import { cn } from "../ui/primitives";
 
 /** Three at-a-glance visuals between the executive story and the KPI cards. */
@@ -22,15 +22,11 @@ export function OverviewStrip() {
   const pm = prevMonth(model, month);
   const p = pm ? getSnapshot(model, pm, null) : null;
 
-  // Day-wise: the chart shows the selected days (a single day shows the week ending on it).
-  const [start, end] = model.daily ? parseKey(month) : [null, null];
+  // The chart shows the selected days (a single day shows the week ending on it).
   const data = useMemo(() => {
     const sales = series(model, "sales", null), cancels = series(model, "cancels", null);
-    const rows = model.months.map((m, i) => ({ month: m, label: monthShort(m), sales: sales[i].value, cancels: cancels[i].value }));
-    if (!start || !end) return rows.filter((r) => r.month <= month);
-    const from = start === end ? model.months[Math.max(0, model.months.indexOf(end) - 6)] : start;
-    return rows.filter((r) => r.month >= from && r.month <= end);
-  }, [model, month, start, end]);
+    return chartDays(model).map((m, i) => ({ month: m, label: monthShort(m), sales: sales[i].value, cancels: cancels[i].value })).filter((r) => r.month <= month);
+  }, [model, month]);
   const sel = data[data.length - 1];
   const chips = model.daily ? (["30", "5", "7", "mtd"] as const).map((id) => presets(model).find((p) => p.id === id)!) : [];
   const CHIP: Record<string, string> = { "30": "Last 30 Days", "5": "Last 5 Days", "7": "Last 7 Days", mtd: "Month-to-Date" };

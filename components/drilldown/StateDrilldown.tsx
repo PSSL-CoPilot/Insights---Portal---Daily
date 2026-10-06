@@ -15,7 +15,7 @@ import { RankedBars } from "../charts/RankedBars";
 import { StateChannelMatrix } from "./PlanOverview";
 import { Sparkline } from "../ui/Sparkline";
 import { Badge, Button, Card, cn, dirTone } from "../ui/primitives";
-import { assess, findFocusChannel, findHotspot, getSnapshot, isChannel, kpiById, prevMonth, scopeName, series } from "@/lib/data/metrics";
+import { assess, chartDays, findFocusChannel, findHotspot, getSnapshot, isChannel, kpiById, prevMonth, scopeName, series } from "@/lib/data/metrics";
 import { stateStory, type StoryPoint } from "@/lib/data/narratives";
 import { buildScopeNarrative } from "@/lib/story/narrative";
 import { NarrativeBlock } from "../story/NarrativeList";
@@ -80,7 +80,7 @@ export function StateDrilldown({ scope }: { scope: string }) {
   const idx = useMemo(() => {
     const s = series(model, "sales", scope), c = series(model, "cancels", scope), i = series(model, "installs", scope);
     const b = (arr: typeof s) => arr[0]?.value ?? null;
-    return model.months.filter((m) => m <= month).map((m, k) => {
+    return chartDays(model).map((m, k) => {
       const f = (arr: typeof s) => (arr[k].value !== null && b(arr) ? (arr[k].value! / b(arr)!) * 100 : null);
       return { label: monthShort(m), Sales: f(s), Installs: f(i), Cancellations: f(c) };
     });
@@ -131,7 +131,7 @@ export function StateDrilldown({ scope }: { scope: string }) {
             })}
           </div>
           <div className="mt-5 rounded-2xl border border-line bg-card p-4">
-            <div className="mb-1 text-[13px] font-semibold">Growth since {monthShort(model.months[0])} (indexed, {monthShort(model.months[0])} = 100)</div>
+            <div className="mb-1 text-[13px] font-semibold">Growth since {monthShort(chartDays(model)[0])} (indexed, {monthShort(chartDays(model)[0])} = 100)</div>
             <div className="h-[220px]">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={idx} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>

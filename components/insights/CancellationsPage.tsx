@@ -14,7 +14,7 @@ import { CustomerMissDrivers } from "../charts/CustomerMissDrivers";
 import { C, TipCard, axisProps } from "../charts/shared";
 import { Badge, Card, cn, RichText, SectionTitle, Tabs } from "../ui/primitives";
 import { Sparkline } from "../ui/Sparkline";
-import { assess, getSnapshot, kpiById, prevMonth, reasonAnnotation, reasonStats, series } from "@/lib/data/metrics";
+import { assess, getSnapshot, kpiById, prevMonth, reasonAnnotation, reasonStats, series , periodReference, chartDays } from "@/lib/data/metrics";
 import { diagnose, focusInsight, type FocusKind } from "@/lib/data/narratives";
 import { fmtInt, fmtPct, fmtPct0, fmtPp, fmtSignedPct, monthLabel, monthName, monthShort, stateSlug } from "@/lib/format";
 
@@ -107,7 +107,7 @@ function TimingView({ initialBucket }: { initialBucket: OddBucket | null }) {
   const s = getSnapshot(model, month, state);
   const p = pm ? getSnapshot(model, pm, state) : null;
   const shift = s.postPct !== null && p?.postPct != null ? s.postPct - p.postPct : null;
-  const shares = model.months.map((m) => {
+  const shares = chartDays(model).map((m) => {
     const x = getSnapshot(model, m, state);
     return { month: m, label: monthShort(m), pre: x.prePct, on: x.onPct, post: x.postPct };
   });
@@ -241,7 +241,7 @@ function CustomerMissView() {
 
       <Card className="p-5 sm:p-6">
         <div className="mb-1 text-[15px] font-semibold">Customer Miss trend · {state ?? "Portfolio"}</div>
-        <TrendChart points={series(model, "custMiss", state)} unit="count" color={C.orange} selected={month} name="Customer Miss cancellations" anomaly={assess(model, kpiById("cust")!, month, state).anomaly} onSelectMonth={setMonth} height={260} />
+        <TrendChart points={series(model, "custMiss", state)} reference={periodReference(model, month, "custMiss", state, "count")} unit="count" color={C.orange} selected={month} name="Customer Miss cancellations" anomaly={assess(model, kpiById("cust")!, month, state).anomaly} onSelectMonth={setMonth} height={260} />
       </Card>
 
       <Card className="p-5 sm:p-6">
@@ -302,7 +302,7 @@ function StatBox({ label, value, sub, tone }: { label: string; value: string; su
 // ------------------------------------------------------------------ classification
 function ClassView() {
   const { model, month, state } = useApp();
-  const data = model.months.map((m) => {
+  const data = chartDays(model).map((m) => {
     const s = getSnapshot(model, m, state);
     return { label: monthShort(m), "Customer Miss": s.custPct, "Company Miss": s.coPct, Faux: s.fauxPct };
   });

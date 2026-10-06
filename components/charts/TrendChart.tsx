@@ -11,8 +11,10 @@ import type { SeriesPoint } from "@/lib/data/metrics";
  * `anomaly` recolours the marker red so the structural break is visible at a glance.
  */
 export function TrendChart({
-  points, unit, color = C.indigo, selected, anomaly, height = 300, name, onSelectMonth,
+  points, unit, color = C.indigo, selected, anomaly, height = 300, name, onSelectMonth, reference,
 }: {
+  /** Day-wise: the comparison period's level, drawn instead of the prior average. */
+  reference?: { value: number | null; label: string };
   points: SeriesPoint[];
   unit: "count" | "pct";
   color?: string;
@@ -24,8 +26,8 @@ export function TrendChart({
 }) {
   const data = points.map((p) => ({ month: p.month, label: monthShort(p.month), value: p.value }));
   const prior = points.filter((p) => p.month < selected && p.value !== null).map((p) => p.value as number);
-  const baseline = prior.length ? prior.reduce((a, b) => a + b, 0) / prior.length : null;
-  const sel = data.find((d) => d.month === selected);
+  const baseline = reference ? reference.value : prior.length ? prior.reduce((a, b) => a + b, 0) / prior.length : null;
+  const sel = data.find((d) => d.month === selected) ?? (reference ? data[data.length - 1] : undefined);
   const fmtAxis = (v: number) => (unit === "pct" ? `${Math.round(v * 100)}%` : fmtCompact(v, 0));
   const fmtVal = (v: number | null) => (unit === "pct" ? fmtPct(v) : fmtInt(v));
   const gid = `tg-${name.replace(/\W/g, "")}`;
@@ -61,7 +63,7 @@ export function TrendChart({
           }}
         />
         {baseline !== null && (
-          <ReferenceLine y={baseline} stroke={C.slateDeep} strokeDasharray="4 4" strokeOpacity={0.7} label={{ value: `Prior avg ${fmtVal(baseline)}`, position: "insideTopLeft", fill: C.axis, fontSize: 10.5, dy: -6 }} />
+          <ReferenceLine y={baseline} stroke={C.slateDeep} strokeDasharray="4 4" strokeOpacity={0.7} label={{ value: reference ? `${reference.label} ${fmtVal(baseline)}` : `Prior avg ${fmtVal(baseline)}`, position: "insideTopLeft", fill: C.axis, fontSize: 10.5, dy: -6 }} />
         )}
         <Area type="monotone" dataKey="value" stroke={color} strokeWidth={2.5} fill={`url(#${gid})`} dot={{ r: 3, fill: C.card, stroke: color, strokeWidth: 2 }} activeDot={{ r: 5 }} connectNulls={false} isAnimationActive animationDuration={700} />
         {sel && sel.value !== null && (
