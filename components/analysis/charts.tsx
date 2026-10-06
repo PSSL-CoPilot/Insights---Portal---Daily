@@ -2,7 +2,7 @@
 
 import { motion } from "motion/react";
 import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { C, TipCard, axisProps } from "../charts/shared";
+import { C, RefLegend, TipCard, axisProps } from "../charts/shared";
 import { RankedBars } from "../charts/RankedBars";
 import type { DataModel, MonthKey, RepRow } from "@/lib/data/types";
 import { fmtInt, fmtPct, fmtPct0, monthLabel, monthShort } from "@/lib/format";
@@ -87,8 +87,10 @@ export function AgencyTrend({ model, agency, month, height = 220 }: { model: Dat
   const data = rows.map((r) => ({ month: r.month, label: monthShort(r.month), rate: r.cancelRate, sales: r.sales, cancels: r.cancels }));
   const id = `ag-${agency.replace(/\W/g, "")}`;
   return (
+    <div>
+    {baseline !== null && <RefLegend label="Own history" value={fmtPct(baseline)} />}
     <ResponsiveContainer width="100%" height={height}>
-      <AreaChart data={data} margin={{ top: 14, right: 8, left: 0, bottom: 0 }}>
+      <AreaChart data={data} margin={{ top: 14, right: 12, left: 0, bottom: 0 }}>
         <defs>
           <linearGradient id={id} x1="0" x2="0" y1="0" y2="1">
             <stop offset="0" stopColor={C.bad} stopOpacity={0.3} />
@@ -98,7 +100,7 @@ export function AgencyTrend({ model, agency, month, height = 220 }: { model: Dat
         <CartesianGrid vertical={false} stroke={C.grid} strokeDasharray="3 5" />
         <XAxis dataKey="label" {...axisProps} />
         <YAxis {...axisProps} width={40} tickFormatter={(v: number) => `${Math.round(v * 100)}%`} domain={[0, "auto"]} />
-        {baseline !== null && <ReferenceLine y={baseline} stroke="var(--color-ink)" strokeDasharray="4 4" label={{ value: `Own history ${fmtPct(baseline)}`, position: "insideTopLeft", fill: "var(--color-mute)", fontSize: 11 }} />}
+        {baseline !== null && <ReferenceLine y={baseline} stroke="var(--color-ink)" strokeDasharray="4 4" />}
         <Tooltip
           cursor={{ stroke: "var(--color-line)" }}
           content={({ active, payload }) =>
@@ -110,6 +112,7 @@ export function AgencyTrend({ model, agency, month, height = 220 }: { model: Dat
         <Area type="monotone" dataKey="rate" stroke={C.bad} strokeWidth={2.2} fill={`url(#${id})`} isAnimationActive animationDuration={900} dot={model.daily ? false : { r: 3, fill: "var(--color-card)", stroke: C.bad, strokeWidth: 2 }} />
       </AreaChart>
     </ResponsiveContainer>
+    </div>
   );
 }
 

@@ -19,6 +19,16 @@ export const C = {
   axis: "var(--color-mute)",
 };
 
+/** Reference line legend, kept at the top right of a chart instead of on top of the plotted line. */
+export function RefLegend({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="mb-1 flex items-center justify-end gap-2 text-[11.5px] text-mute">
+      <svg width="22" height="6" aria-hidden><line x1="0" y1="3" x2="22" y2="3" stroke={C.slateDeep} strokeWidth="1.6" strokeDasharray="4 3" /></svg>
+      <span>{label}</span><strong className="num text-ink">{value}</strong>
+    </div>
+  );
+}
+
 export interface TooltipRow {
   label: string;
   value: ReactNode;

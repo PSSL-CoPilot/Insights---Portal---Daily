@@ -1,7 +1,7 @@
 "use client";
 
 import { Area, AreaChart, CartesianGrid, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { C, TipCard, axisProps } from "./shared";
+import { C, RefLegend, TipCard, axisProps } from "./shared";
 import { fmtCompact, fmtPct, fmtInt, monthLabel, monthShort } from "@/lib/format";
 import type { MonthKey } from "@/lib/data/types";
 import type { SeriesPoint } from "@/lib/data/metrics";
@@ -33,10 +33,12 @@ export function TrendChart({
   const gid = `tg-${name.replace(/\W/g, "")}`;
 
   return (
+    <div>
+    {baseline !== null && <RefLegend label={reference ? reference.label : "Prior avg"} value={fmtVal(baseline)} />}
     <ResponsiveContainer width="100%" height={height}>
       <AreaChart
         data={data}
-        margin={{ top: 22, right: 18, left: 0, bottom: 0 }}
+        margin={{ top: 30, right: 44, left: 0, bottom: 0 }}
         onClick={(s) => {
           const i = Number(s?.activeIndex);
           if (onSelectMonth && Number.isFinite(i) && data[i]) onSelectMonth(data[i].month);
@@ -63,7 +65,7 @@ export function TrendChart({
           }}
         />
         {baseline !== null && (
-          <ReferenceLine y={baseline} stroke={C.slateDeep} strokeDasharray="4 4" strokeOpacity={0.7} label={{ value: reference ? `${reference.label} ${fmtVal(baseline)}` : `Prior avg ${fmtVal(baseline)}`, position: "insideTopLeft", fill: C.axis, fontSize: 10.5, dy: -6 }} />
+          <ReferenceLine y={baseline} stroke={C.slateDeep} strokeDasharray="4 4" strokeOpacity={0.7} />
         )}
         <Area type="monotone" dataKey="value" stroke={color} strokeWidth={2.5} fill={`url(#${gid})`} dot={{ r: 3, fill: C.card, stroke: color, strokeWidth: 2 }} activeDot={{ r: 5 }} connectNulls={false} isAnimationActive animationDuration={700} />
         {sel && sel.value !== null && (
@@ -72,5 +74,6 @@ export function TrendChart({
         )}
       </AreaChart>
     </ResponsiveContainer>
+    </div>
   );
 }
