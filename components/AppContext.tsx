@@ -5,6 +5,8 @@ import { useSearchParams } from "next/navigation";
 import type { DataModel, MonthKey } from "@/lib/data/types";
 import { slugToState } from "@/lib/format";
 import { defaultKey, rangeModel, validKey, type Horizon } from "@/lib/data/daily";
+// The workbook model, generated at build time (scripts/export-model.ts): one cached script, one object for the session.
+import base from "@/lib/data/model.generated";
 
 export interface KpiModalState {
   id: string;
@@ -53,7 +55,7 @@ function UrlSync({ apply }: { apply: (p: URLSearchParams) => void }) {
   return null;
 }
 
-export function AppProviders({ model: base, children }: { model: DataModel; children: ReactNode }) {
+export function AppProviders({ children }: { children: ReactNode }) {
   // Day-wise: the selected date range (single day or several) is a period key; the model is rebuilt for it.
   const latest = base.daily ? defaultKey(base) : base.latestMonth ?? base.months[base.months.length - 1] ?? "";
   const [month, setMonthRaw] = useState<MonthKey>(latest);

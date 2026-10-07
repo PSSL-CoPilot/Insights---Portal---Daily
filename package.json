@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "predev": "tsx scripts/export-model.ts",
     "dev": "next dev",
+    "prebuild": "tsx scripts/export-model.ts",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",

@@ -4,5 +4,6 @@ node_modules
 *.tsbuildinfo
 next-env.d.ts
 out
+lib/data/model.generated.js
 AGENTS.md
 CLAUDE.md

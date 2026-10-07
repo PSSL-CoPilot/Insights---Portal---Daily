@@ -51,7 +51,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <Script id="bs-theme" strategy="beforeInteractive">{THEME_SCRIPT}</Script>
       </head>
       <body>
-        <AppProviders model={model}>
+        <AppProviders>
           <AppShell>{children}</AppShell>
         </AppProviders>
       </body>
