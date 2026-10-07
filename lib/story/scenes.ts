@@ -71,7 +71,7 @@ export function buildStoryScenes(model: DataModel, month: MonthKey): StoryScene[
       title: "A few agencies, and mostly their new reps",
       body: plain(pt.get("sales-quality")),
       visual: {
-        kind: "agencies",
+        kind: "agencies", state: h.state,
         rows: [...f.weakAgencies].sort((a, b) => a.agency.localeCompare(b.agency)).map((a) => {
           const c = worst(a.agency);
           return { agency: a.agency, channel: a.channel, baseline: a.baseline, rate: a.cancelRate, gap: a.gap, focus: agencyCoaching(a).focus, cohort: c ? { cohort: c.cohort, salesShare: c.salesShare, cancelShare: c.cancelShare, rate: c.rate } : null };

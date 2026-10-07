@@ -9,6 +9,7 @@ import { Gauge } from "../charts/Gauge";
 import { ChannelIcon } from "./ChannelIcon";
 import { BAND } from "./USStoryMap";
 import type { SceneVisual } from "@/lib/story/types";
+import type { SelectionPatch } from "@/lib/story/links";
 import { fmtInt, fmtPct, fmtPct0, fmtPp, fmtSignedPct } from "@/lib/format";
 
 const ease = [0.2, 0.8, 0.2, 1] as const;
@@ -66,7 +67,9 @@ const rise = (i: number, base = 0.2) => ({
   transition: { duration: 0.55, ease, delay: base + i * 0.08 },
 });
 
-export function SceneVisualView({ visual, actions, onSelectState }: { visual: SceneVisual; actions?: ReactNode; onSelectState?: (state: string) => void }) {
+/** `onSelect`: opens the Detailed Analysis of a state, channel or agency picked in a visual (the player's dialog). */
+export function SceneVisualView({ visual, actions, onSelect }: { visual: SceneVisual; actions?: ReactNode; onSelect?: (p: SelectionPatch) => void }) {
+  const onSelectState = onSelect && ((s: string) => onSelect({ states: [s] }));
   switch (visual.kind) {
     case "map":
       return visual.zoom ? <FocusCallout states={visual.states} zoom={visual.zoom} onSelect={onSelectState} /> : <MapLegend states={visual.states} onSelect={onSelectState} />;
@@ -74,19 +77,21 @@ export function SceneVisualView({ visual, actions, onSelectState }: { visual: Sc
       const max = Math.max(...visual.rows.map((r) => r.rate ?? 0)) * 1.08;
       return (
         <Panel title={`${visual.state} cancel rate by channel`}>
-          <div className="space-y-3.5">
+          <div className="space-y-1.5">
             {visual.rows.map((r, i) => (
-              <motion.div key={r.channel} {...rise(i)} className="grid grid-cols-[minmax(120px,170px)_1fr_68px] items-center gap-4">
+              <motion.button type="button" key={r.channel} {...rise(i)} onClick={() => onSelect?.({ states: [visual.state], channels: [r.channel] })} disabled={!onSelect}
+                title={onSelect ? `Open ${r.channel} in ${visual.state}` : undefined}
+                className="-mx-2 grid w-[calc(100%+16px)] grid-cols-[minmax(120px,170px)_1fr_68px] items-center gap-4 rounded-xl px-2 py-1 text-left transition-colors enabled:hover:bg-subtle">
                 <div className={cn("flex items-center gap-2.5 text-[15px]", r.outlier ? "font-semibold text-ink" : "text-mute")}>
                   <span className={cn("grid size-8 place-items-center rounded-full", r.outlier ? "bg-bad-soft text-bad" : "bg-subtle text-mute")}><ChannelIcon channel={r.channel} className="size-4" /></span>
                   {r.channel}
                 </div>
                 <Bar value={r.rate} max={max} color={r.outlier ? RED : MUTED} delay={0.3 + i * 0.08} height={r.outlier ? 14 : 9} />
                 <div className={cn("num text-right text-[16px] font-semibold", r.outlier ? "text-bad" : "text-mute")}>{fmtPct(r.rate)}</div>
-              </motion.div>
+              </motion.button>
             ))}
           </div>
-          {visual.normal && <div className="mt-5 text-[13px] text-mute">Other channels: {fmtPct0(visual.normal[0])} to {fmtPct0(visual.normal[1])}</div>}
+          {visual.normal && <div className="mt-5 text-[13px] text-mute">Other channels: {fmtPct0(visual.normal[0])} to {fmtPct0(visual.normal[1])}{onSelect ? " · select a channel for its analysis" : ""}</div>}
         </Panel>
       );
     }
@@ -95,7 +100,9 @@ export function SceneVisualView({ visual, actions, onSelectState }: { visual: Sc
       return (
         <div className="grid gap-4 md:grid-cols-3">
           {visual.rows.map((r, i) => (
-            <motion.div key={r.agency} {...rise(i, 0.15)} className="flex flex-col rounded-[24px] border border-line/80 bg-card p-5 shadow-card dark:border-white/[0.06]">
+            <motion.button type="button" key={r.agency} {...rise(i, 0.15)} onClick={() => onSelect?.({ states: [visual.state], channels: [r.channel], agencies: [r.agency] })} disabled={!onSelect}
+              title={onSelect ? `Open ${r.agency} (${r.channel}, ${visual.state}) with its representatives` : undefined}
+              className="flex flex-col rounded-[24px] border border-line/80 bg-card p-5 text-left shadow-card transition enabled:hover:-translate-y-0.5 enabled:hover:shadow-pop dark:border-white/[0.06]">
               <div className="flex items-start justify-between gap-2">
                 <div className="text-[16px] font-semibold text-ink">{r.agency}</div>
                 <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-subtle px-2.5 py-1 text-[11.5px] font-semibold text-ink-2">
@@ -131,7 +138,8 @@ export function SceneVisualView({ visual, actions, onSelectState }: { visual: Sc
                 </div>
               )}
               <div className="mt-auto pt-4 text-[12.5px] leading-snug text-ink-2"><span className="font-semibold text-teal">Coach:</span> {r.focus}</div>
-            </motion.div>
+              {onSelect && <div className="mt-3 inline-flex items-center gap-1 text-[12px] font-semibold text-brand-2">Agency and rep details <ArrowRight className="size-3.5" /></div>}
+            </motion.button>
           ))}
         </div>
       );

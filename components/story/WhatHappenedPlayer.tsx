@@ -18,10 +18,9 @@ import { HorizonToggle } from "./EvidencePanel";
 import { NarrativeBlock } from "./NarrativeList";
 import { useApp } from "../AppContext";
 import { Modal } from "../ui/Modal";
-import { StateDrilldown } from "../drilldown/StateDrilldown";
-import { AgencyTable } from "../analysis/AgencyViews";
-import { buildSelectionNarrative } from "@/lib/story/analysis";
-import { NO_SELECTION, patchSelection, type SelectionPatch } from "@/lib/story/links";
+import { Detail } from "../analysis/DetailedAnalysis";
+import { buildSelectionNarrative, selectionLabel } from "@/lib/story/analysis";
+import { NO_SELECTION, patchSelection, type Selection, type SelectionPatch } from "@/lib/story/links";
 import { EDGE_FADE, Layout, MAP_FRAME, SceneText, frameV, mapStateFor, visualV } from "./SceneFrame";
 
 const ease = [0.22, 0.9, 0.24, 1] as const;
@@ -52,12 +51,13 @@ export function WhatHappenedPlayer({
   scenes, month, onClose, onTakeAction,
 }: { scenes: StoryScene[]; month: MonthKey; onClose: () => void; onTakeAction: () => void }) {
   const router = useRouter();
-  const { horizon } = useApp();
+  const { horizon, model } = useApp();
   const [index, setIndex] = useState(0);
-  // A state picked on the map: its Detailed Analysis opens in a dialog and the story pauses.
-  const [openState, setOpenState] = useState<string | null>(null);
-  const selectState = useCallback((s: string) => { setPlaying(false); setOpenState(s); }, []);
-  const closeState = useCallback(() => setOpenState(null), []);
+  // A state, channel or agency picked in a scene: its Detailed Analysis opens in a dialog and the story pauses.
+  const [openSel, setOpenSel] = useState<Selection | null>(null);
+  const openDetail = useCallback((p: SelectionPatch) => { setPlaying(false); setOpenSel(patchSelection(NO_SELECTION, p)); }, []);
+  const selectState = useCallback((s: string) => openDetail({ states: [s] }), [openDetail]);
+  const closeDetail = useCallback(() => setOpenSel(null), []);
   const [playing, setPlaying] = useState(true);
   const [run, setRun] = useState(0);
   const progress = useMotionValue(0);
@@ -120,7 +120,7 @@ export function WhatHappenedPlayer({
     document.body.style.overflow = "hidden";
     playBtn.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (openState) return; // the state dialog handles its own keys (Escape closes it, not the story)
+      if (openSel) return; // the dialog handles its own keys (Escape closes it, not the story)
       const tag = (e.target as HTMLElement)?.tagName;
       if (e.key === "Escape") return onClose();
       if (e.key === "Tab" && root.current) {
@@ -143,7 +143,7 @@ export function WhatHappenedPlayer({
       document.body.style.overflow = prevOverflow;
       prevFocus?.focus?.();
     };
-  }, [onClose, toggle, next, prevScene, replay, openState]);
+  }, [onClose, toggle, next, prevScene, replay, openSel]);
 
   const focusState = mapScenes.map((x) => (x.s.visual.kind === "map" ? x.s.visual.zoom : null)).find(Boolean) ?? null;
   const evidenceHref = focusState ? analysisHref({ state: focusState }, month) : `/cancellations?month=${month}`;
@@ -171,7 +171,7 @@ export function WhatHappenedPlayer({
   const visual = (
     <motion.div variants={visualV} className={cn("pointer-events-auto min-h-0 w-full", isMapScene && (l === "top" ? "self-end" : l === "right" ? "self-end" : ""))}>
       {/* Re-keyed on the horizon so the figures replay their entrance when the switch changes them. */}
-      <SceneVisualView key={horizon} visual={scene.visual} actions={last ? endActions : undefined} onSelectState={selectState} />
+      <SceneVisualView key={horizon} visual={scene.visual} actions={last ? endActions : undefined} onSelect={openDetail} />
     </motion.div>
   );
 
@@ -283,23 +283,23 @@ export function WhatHappenedPlayer({
         </div>
 
         <Modal
-          open={!!openState}
-          onClose={closeState}
+          open={!!openSel}
+          onClose={closeDetail}
           header={
             <div className="flex flex-wrap items-end justify-between gap-3 px-6 py-5 pr-16">
               <div>
                 <div className="text-[11.5px] font-semibold uppercase tracking-[0.12em] text-mute">Detailed Analysis · {monthLabel(month)}</div>
-                <div className="mt-1 text-[24px] font-semibold tracking-tight">{openState}</div>
+                <div className="mt-1 text-[24px] font-semibold tracking-tight">{openSel && (openSel.rep ? `Representative ${openSel.rep}` : selectionLabel(model, openSel))}</div>
               </div>
-              {openState && (
-                <button onClick={() => { onClose(); router.push(analysisHref({ state: openState }, month)); }} className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-card px-4 text-[13px] font-semibold text-ink shadow-card transition hover:shadow-pop">
+              {openSel && (
+                <button onClick={() => { onClose(); router.push(analysisHref(openSel, month)); }} className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-card px-4 text-[13px] font-semibold text-ink shadow-card transition hover:shadow-pop">
                   Open in Detailed Analysis <ArrowRight className="size-4" />
                 </button>
               )}
             </div>
           }
         >
-          {openState && <StateAnalysis state={openState} month={month} go={(href) => { onClose(); router.push(href); }} />}
+          {openSel && <DetailAnalysis sel={openSel} month={month} select={(p) => setOpenSel((s) => patchSelection(s ?? NO_SELECTION, p))} />}
         </Modal>
       </motion.div>
     </MotionConfig>,
@@ -307,17 +307,20 @@ export function WhatHappenedPlayer({
   );
 }
 
-/** The same insights and detail the Detailed Analysis tab shows for one state. Links inside leave the story. */
-function StateAnalysis({ state, month, go }: { state: string; month: MonthKey; go: (href: string) => void }) {
+/**
+ * The same insights and detail the Detailed Analysis tab shows for a selection (a state, a channel in a state,
+ * or an agency with its representatives). Picks inside (an agency, a rep) refine the dialog in place.
+ */
+function DetailAnalysis({ sel, month, select }: { sel: Selection; month: MonthKey; select: (p: SelectionPatch) => void }) {
   const { model } = useApp();
-  const sel = useMemo(() => ({ ...NO_SELECTION, states: [state] }), [state]);
+  const top = useRef<HTMLDivElement>(null);
+  const key = `${sel.states}|${sel.channels}|${sel.agencies}|${sel.rep}|${month}`;
   const points = useMemo(() => buildSelectionNarrative(model, month, sel), [model, month, sel]);
-  const select = (p: SelectionPatch) => go(analysisHref(patchSelection(sel, p), month));
+  useEffect(() => { top.current?.closest(".overflow-y-auto")?.scrollTo({ top: 0, behavior: "smooth" }); }, [key]);
   return (
-    <div className="space-y-6">
-      <NarrativeBlock points={points} resetKey={`${state}|${month}`} eyebrow={state} />
-      <StateDrilldown scope={state} />
-      {model.story.focusState === state && <AgencyTable agencies={model.story.agencies} select={select} />}
+    <div ref={top} className="space-y-6">
+      <NarrativeBlock points={points} resetKey={key} eyebrow={selectionLabel(model, sel)} />
+      <Detail sel={sel} select={select} />
     </div>
   );
 }

@@ -83,7 +83,7 @@ export interface Recommendation {
 export type SceneVisual =
   | { kind: "map"; zoom: string | null; states: { name: string; value: number | null; label: string; severity: MapBand }[] }
   | { kind: "channels"; state: string; rows: { channel: string; rate: number | null; sales: number | null; outlier: boolean }[]; normal: [number, number] | null }
-  | { kind: "agencies"; rows: { agency: string; channel: string; baseline: number | null; rate: number | null; gap: number | null; focus: string; cohort: { cohort: string; salesShare: number | null; cancelShare: number | null; rate: number | null } | null }[] }
+  | { kind: "agencies"; state: string; rows: { agency: string; channel: string; baseline: number | null; rate: number | null; gap: number | null; focus: string; cohort: { cohort: string; salesShare: number | null; cancelShare: number | null; rate: number | null } | null }[] }
   | { kind: "sales-signals"; signals: { label: string; value: number | null }[]; example: { label: string; value: string }[]; action: string; stats: { orders: number | null; projected: number | null; saves: number | null; month: string } | null }
   | { kind: "split"; total: number | null; parts: { kind: string; label: string; cancels: number | null; share: number | null; emphasis: boolean }[]; signal: number | null }
   | { kind: "timing"; rows: { label: string; pre: number | null; on: number | null; post: number | null; emphasis: boolean }[]; drivers: { label: string; count: number | null; mom: number | null }[] }

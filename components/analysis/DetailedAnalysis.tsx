@@ -69,7 +69,8 @@ export function DetailedAnalysis() {
   );
 }
 
-function Detail({ sel, select }: { sel: Selection; select: (s: SelectionPatch) => void }) {
+/** The detail under the insights for a selection; also shown in the story player's dialog. */
+export function Detail({ sel, select }: { sel: Selection; select: (s: SelectionPatch) => void }) {
   const { model } = useApp();
   const st = model.story;
   const { states: S, channels: C, agencies: A } = sel;
