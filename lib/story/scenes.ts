@@ -96,28 +96,11 @@ export function buildStoryScenes(model: DataModel, month: MonthKey): StoryScene[
     });
   }
 
-  // 6. Problem 2: customer contact
-  const dr = f.drivers;
-  if (pt.has("contact") && dr.sales && dr.contact) {
-    add({
-      id: "contact", mode: "observed", kicker: "Problem 2: customer contact", emphasis: true, duration: 12000,
-      title: "The bigger problem: customers we could not confirm",
-      body: plain(pt.get("contact")),
-      visual: {
-        kind: "split", total: dr.total?.cancels ?? null, signal: f.focusSnap?.pendingPct ?? null,
-        parts: (["sales", "contact", "company", "faux"] as const).filter((k) => dr[k]).map((k) => ({
-          kind: k, label: k === "sales" ? "Sales quality" : k === "contact" ? "Customer contact" : k === "company" ? "Company and operational" : "Faux and other",
-          cancels: dr[k]!.cancels, share: dr[k]!.share, emphasis: k === "sales" || k === "contact",
-        })),
-      },
-    });
-  }
-
-  // 7. When: the lifecycle split before, on and after the Original Due Date.
+  // 6. Other observation (when): the lifecycle split before, on and after the Original Due Date.
   if (pt.has("timing") && f.port.postPct !== null) {
     const split = (label: string, s: ReturnType<typeof getSnapshot> | null, emphasis = false) => ({ label, pre: s?.prePct ?? null, on: s?.onPct ?? null, post: s?.postPct ?? null, emphasis });
     add({
-      id: "timing", mode: "observed", kicker: "When", duration: 11000,
+      id: "timing", mode: "observed", kicker: "Other observation", duration: 11000,
       title: "Customers are lost late",
       body: plain(pt.get("timing")),
       visual: {
@@ -128,6 +111,23 @@ export function buildStoryScenes(model: DataModel, month: MonthKey): StoryScene[
           ...(f.focusSnap ? [split(`${h.state}, ${monthShort(month)}`, f.focusSnap, true)] : []),
         ],
         drivers: f.lateDrivers.slice(0, 3).map((r) => ({ label: r.label, count: r.count, mom: r.mom })),
+      },
+    });
+  }
+
+  // 7. Problem 2: customer contact
+  const dr = f.drivers;
+  if (pt.has("contact") && dr.sales && dr.contact) {
+    add({
+      id: "contact", mode: "observed", kicker: "Problem 2: customer contact", emphasis: true, duration: 12000,
+      title: "The bigger problem: customers we could not confirm",
+      body: `In ${h.state}, ${plain(pt.get("contact"))}`,
+      visual: {
+        kind: "split", total: dr.total?.cancels ?? null, signal: f.focusSnap?.pendingPct ?? null,
+        parts: (["sales", "contact", "company", "faux"] as const).filter((k) => dr[k]).map((k) => ({
+          kind: k, label: k === "sales" ? "Sales quality" : k === "contact" ? "Customer contact" : k === "company" ? "Company and operational" : "Faux and other",
+          cancels: dr[k]!.cancels, share: dr[k]!.share, emphasis: k === "sales" || k === "contact",
+        })),
       },
     });
   }
