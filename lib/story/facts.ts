@@ -2,7 +2,7 @@
  * Canonical story facts for a month. Every narrative, evidence panel and player scene reads its
  * figures from here (which reads the workbook backed model), so a number is derived exactly once.
  */
-import type { AgencySnapshotRow, DataModel, DriverRow, ForecastStateRow, InterventionRow, MonthKey, RepCohortRow, SegmentRow } from "../data/types";
+import type { AgencySnapshotRow, DataModel, DriverRow, ForecastStateRow, InterventionRow, MonthKey, PairRow, RepCohortRow, SegmentRow } from "../data/types";
 import { diagnose, type Diagnosis } from "../data/narratives";
 import {
   AGENCY_GAP_THRESHOLD, assess, channelRows, excessCancels, getSnapshot, kpiById, prevMonth, reasonStats, stateRows,
@@ -67,6 +67,11 @@ export interface StoryFacts {
   repRiskShare: number | null;
   /** Delivery risk segmentation (cancellation risk x Customer Lifetime Value (CLTV) x ODD x permit / construction readiness). */
   highValue: { total: number | null; accelerate: SegmentRow | null; resetOdd: SegmentRow | null; handOff: SegmentRow | null; standard: SegmentRow | null };
+  /** Day-wise: how much riskier the orders the score runs on are over the plan's horizon than over 30 days (1 at 30 days). */
+  scoreLift: number;
+  /** Example scored order and example delivery-risk order, restated on the plan's horizon. */
+  exampleOrder: PairRow[];
+  exampleInstall: PairRow[];
 }
 
 const cache = new WeakMap<DataModel, Map<MonthKey, StoryFacts>>();
@@ -86,16 +91,59 @@ const weighted = <T,>(rows: T[], w: (r: T) => number | null, v: (r: T) => number
   return den ? num / den : null;
 };
 
-/** The five sales quality risk factors for the deteriorating agencies, highest first. */
-export function riskFactors(f: StoryFacts): { id: string; label: string; short: string; v: number | null }[] {
+/**
+ * The five sales quality risk factors for the deteriorating agencies, highest first. `scored`: their share in
+ * the orders the score runs on over the plan's horizon (the observed shares times `scoreLift`).
+ */
+export function riskFactors(f: StoryFacts, scored = false): { id: string; label: string; short: string; v: number | null }[] {
   const sg = f.signals;
+  const k = (v: number | null) => (v === null || !scored ? v : Math.min(0.95, v * f.scoreLift));
+  const rep = k(f.repRiskShare);
   return [
-    { id: "rep", label: "Rep risk (sales from High or Critical reps)", short: `rep risk (${pct(f.repRiskShare)} of sales from High or Critical reps)`, v: f.repRiskShare },
-    { id: "lowIntent", label: "Low intent in sales transcript", short: `low intent (${pct(sg.lowIntent)})`, v: sg.lowIntent },
-    { id: "promo", label: "Promotion sensitivity", short: `promotion sensitivity (${pct(sg.promo)})`, v: sg.promo },
-    { id: "competitor", label: "Competitor mentioned", short: `competitor mention (${pct(sg.competitor)})`, v: sg.competitor },
-    { id: "failedConfirm", label: "Price or offer mismatch (fails independent confirmation)", short: `price or offer mismatch (${pct(sg.failedConfirm)} fail independent confirmation)`, v: sg.failedConfirm },
+    { id: "rep", label: "Rep risk (sales from High or Critical reps)", short: `rep risk (${pct(rep)} of sales from High or Critical reps)`, v: rep },
+    { id: "lowIntent", label: "Low intent in sales transcript", short: `low intent (${pct(k(sg.lowIntent))})`, v: k(sg.lowIntent) },
+    { id: "promo", label: "Promotion sensitivity", short: `promotion sensitivity (${pct(k(sg.promo))})`, v: k(sg.promo) },
+    { id: "competitor", label: "Competitor mentioned", short: `competitor mention (${pct(k(sg.competitor))})`, v: k(sg.competitor) },
+    { id: "failedConfirm", label: "Price or offer mismatch (fails independent confirmation)", short: `price or offer mismatch (${pct(k(sg.failedConfirm))} fail independent confirmation)`, v: k(sg.failedConfirm) },
   ].sort((a, b) => (b.v ?? -1) - (a.v ?? -1));
+}
+
+/**
+ * Day-wise: the next `h` days are mostly orders sold in the last few days, so the score runs on the recent mix.
+ * Half of the weak agencies' cancel rate lift (last `h` days vs last 30) carries into the risk factors and the
+ * example scores. ponytail: half-lift heuristic; read per-order factor shares instead once the daily sheets carry them.
+ */
+function scoreLiftOf(model: DataModel, weak: Set<string>): number {
+  const D = model.daily, h = D?.horizon ?? 30;
+  if (!D?.end || h >= 30) return 1;
+  const days = D.dates.filter((d) => d <= D.end!);
+  const rateOver = (n: number) => {
+    const ds = new Set(days.slice(-n));
+    let s0 = 0, c0 = 0;
+    for (const r of D.raw.ag) if (ds.has(String(r.date)) && weak.has(String(r.agency))) { s0 += Number(r.sales) || 0; c0 += Number(r.cancels) || 0; }
+    return s0 ? c0 / s0 : null;
+  };
+  const a = rateOver(h), b = rateOver(30);
+  return a && b ? Math.max(1, 1 + (a / b - 1) / 2) : 1;
+}
+
+/** Example rows restated on the horizon: scores times the lift, dates inside the next `h` days (30 days keeps the workbook). */
+function restateExamples(model: DataModel, lift: number) {
+  const D = model.daily, h = D?.horizon ?? 30, st = model.story;
+  if (!D?.end) return { exampleOrder: st.exampleOrder, exampleInstall: st.exampleInstall };
+  const day = (n: number) => new Date(Date.parse(`${D.end}T00:00:00Z`) + n * 864e5).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" });
+  const near = h < 30, odd = 5;
+  const scale = (v: string) => v.replace(/\d+/, (x) => String(Math.min(99, Math.round(Number(x) * lift))));
+  return {
+    exampleOrder: st.exampleOrder.flatMap((r) =>
+      /propensity/i.test(r.label) ? [{ ...r, value: scale(r.value) }, { label: "Expected installation", value: day(near ? odd - 1 : 12) }]
+      : near && /recommended action/i.test(r.label) ? [{ ...r, value: `${r.value} within 24 hours` }] : [r]),
+    exampleInstall: !near ? st.exampleInstall : st.exampleInstall.map((r) =>
+      /risk/i.test(r.label) ? { ...r, value: scale(r.value) }
+      : /current odd/i.test(r.label) ? { ...r, value: day(odd) }
+      : /earlier slot/i.test(r.label) ? { ...r, value: day(odd - 2) }
+      : /recommended action/i.test(r.label) ? { ...r, value: `${r.value} this week` } : r),
+  };
 }
 const pct = (v: number | null) => (v === null ? "n/a" : `${Math.round(v * 100)}%`);
 
@@ -194,7 +242,11 @@ export function storyFacts(model: DataModel, month: MonthKey): StoryFacts {
       projected: hasStory ? st.contactRisk[1]?.value ?? null : null,
       protectable: hasStory ? st.contactRisk[2]?.value ?? null : null,
     },
+    scoreLift: scoreLiftOf(model, weakNames),
+    exampleOrder: [],
+    exampleInstall: [],
   };
+  Object.assign(f, restateExamples(model, f.scoreLift));
   if (hasStory) {
     const rows = st.forecastChannels.filter((r) => !r.isTotal && outlierChannels.some((c) => c.channel === r.channel));
     const orders = rows.reduce((a, r) => a + (r.sales ?? 0), 0), projected = rows.reduce((a, r) => a + (r.cancels ?? 0), 0);

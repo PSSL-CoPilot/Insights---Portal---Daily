@@ -2,6 +2,7 @@
 
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { animate, motion } from "motion/react";
+import type { MapBand } from "@/lib/story/types";
 
 interface GeoState {
   name: string;
@@ -18,7 +19,7 @@ interface Geo {
 export interface MapStateValue {
   name: string;
   label: string;
-  severity: "critical" | "warning" | "normal";
+  severity: MapBand;
 }
 
 /** Fractions of the map's own box where the subject should sit (0 to 1). */
@@ -47,7 +48,13 @@ function useGeo() {
   return geo;
 }
 
-const FILL = { critical: "var(--color-bad)", warning: "#f5a524", normal: "var(--color-map-footprint)" };
+/** Fill and text colour per band: dark green, very light green, very light orange, red. */
+export const BAND: Record<MapBand, { fill: string; text: string; label: string }> = {
+  low: { fill: "#166534", text: "#ffffff", label: "Below 5%" },
+  mild: { fill: "#dcfce7", text: "#000000", label: "5 to 10%" },
+  elevated: { fill: "#ffedd5", text: "#000000", label: "10 to 15%" },
+  high: { fill: "#dc2626", text: "#ffffff", label: "15% and above" },
+};
 type VB = [number, number, number, number];
 
 /**
@@ -55,8 +62,8 @@ type VB = [number, number, number, number];
  * geometry is redrawn as vectors on every frame: it stays sharp at any zoom (no bitmap scaling).
  */
 export const USStoryMap = memo(function USStoryMap({
-  states, zoom, frame, showLabels = true, instant = false, onReady,
-}: { states: MapStateValue[]; zoom: string | null; frame: MapFrame; showLabels?: boolean; instant?: boolean; onReady?: () => void }) {
+  states, zoom, frame, showLabels = true, instant = false, onReady, onSelect,
+}: { states: MapStateValue[]; zoom: string | null; frame: MapFrame; showLabels?: boolean; instant?: boolean; onReady?: () => void; onSelect?: (state: string) => void }) {
   const geo = useGeo();
   const box = useRef<HTMLDivElement>(null);
   const svg = useRef<SVGSVGElement>(null);
@@ -136,8 +143,10 @@ export const USStoryMap = memo(function USStoryMap({
               key={g.name}
               d={g.d}
               vectorEffect="non-scaling-stroke"
+              onClick={v && onSelect ? () => onSelect(g.name) : undefined}
               style={{
-                fill: v ? FILL[v.severity] : "var(--color-map-land)",
+                cursor: v && onSelect ? "pointer" : undefined,
+                fill: v ? BAND[v.severity].fill : "var(--color-map-land)",
                 stroke: "var(--color-map-stroke)",
                 strokeWidth: v ? 1.4 : 0.9,
                 strokeLinejoin: "round",
@@ -169,10 +178,10 @@ export const USStoryMap = memo(function USStoryMap({
             const f = big ? fs * 1.5 : fs;
             return (
               <motion.g key={v.name} initial={false} animate={{ opacity: visible ? 1 : 0 }} transition={{ duration: 0.45 }} style={{ pointerEvents: "none" }}>
-                <text x={g.c[0]} y={g.c[1] - f * 0.25} textAnchor="middle" fontSize={f} fontWeight={600} style={{ fill: "var(--color-map-label)", stroke: "var(--color-map-stroke)", strokeWidth: f * 0.22, paintOrder: "stroke", letterSpacing: "-0.02em" }}>
+                <text x={g.c[0]} y={g.c[1] - f * 0.25} textAnchor="middle" fontSize={f} fontWeight={700} style={{ fill: BAND[v.severity].text, stroke: BAND[v.severity].fill, strokeWidth: f * 0.3, strokeLinejoin: "round", paintOrder: "stroke", letterSpacing: "-0.02em" }}>
                   {v.label}
                 </text>
-                <text x={g.c[0]} y={g.c[1] + f * 0.85} textAnchor="middle" fontSize={f * 0.62} fontWeight={500} style={{ fill: "var(--color-map-label)", opacity: 0.75, stroke: "var(--color-map-stroke)", strokeWidth: f * 0.16, paintOrder: "stroke" }}>
+                <text x={g.c[0]} y={g.c[1] + f * 0.85} textAnchor="middle" fontSize={f * 0.62} fontWeight={600} style={{ fill: BAND[v.severity].text, stroke: BAND[v.severity].fill, strokeWidth: f * 0.24, strokeLinejoin: "round", paintOrder: "stroke" }}>
                   {v.name}
                 </text>
               </motion.g>

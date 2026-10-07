@@ -263,7 +263,7 @@ function executivePoints(f: StoryFacts): NarrativePoint[] | null {
         id: "sales-prevention", mode: "preventive", label: `Prevention (next ${hz(f.model)} days): sales quality`, tone: "warn",
         text:
           `Score each of the **${fmtInt(ro.orders)}** ${listJoin(ro.channels)} orders expected in ${focus.state} over the next ${hz(f.model)} days on five risk factors: ` +
-          `${listJoin(riskFactors(f).map((x) => x.short))}. ` +
+          `${listJoin(riskFactors(f, true).map((x) => x.short))}. ` +
           `Verify the riskiest orders before installation and coach the reps behind them: about **${fmtInt(iv.saves)}** cancellations avoided.`,
         evidence: { kind: "sales-prevention", title: "Preventive sales quality analysis", interpretation: `Without action these orders are projected to cancel at ${fmtPct0(ro.rate)}. Verifying them before installation turns a lost sale into a confirmed or corrected one.` },
       });
@@ -297,7 +297,7 @@ function executivePoints(f: StoryFacts): NarrativePoint[] | null {
       id: "high-value", mode: "preventive", label: `Prevention (next ${hz(f.model)} days): high-value customers`, tone: "warn",
       text:
         `Combine each order's cancellation-risk score with Customer Lifetime Value (CLTV), the ODD and permit and construction readiness. ` +
-        `Of **${fmtInt(hv.total)}** ${focus.state} delivery-risk orders, **${fmtInt(hv.accelerate.orders)}** high-value customers are ready but scheduled late: bring their installation forward. ` +
+        `Of **${fmtInt(hv.total)}** ${focus.state} delivery-risk orders due in the next ${hz(f.model)} days, **${fmtInt(hv.accelerate.orders)}** high-value customers are ready but scheduled late: bring their installation forward. ` +
         `**${fmtInt(hv.resetOdd.orders)}** have an ODD that cannot be met: correct the commitment before it fails. About **${fmtInt(ivi.saves)}** cancellations avoided.`,
       evidence: { kind: "high-value", title: "High-value customer protection", interpretation: "Act where it pays: speed up ready high-value jobs, reset impossible dates early, and leave low-risk orders on their normal route." },
     });

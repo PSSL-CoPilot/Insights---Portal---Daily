@@ -28,14 +28,14 @@ export const TEAL = "var(--color-teal)";
 export const NAVY = "var(--color-observed)";
 
 /** Next 5 / Next 30 days switch. One horizon for the whole app, so every outlook, plan and action follows it. */
-export function HorizonToggle({ className }: { className?: string }) {
+export function HorizonToggle({ className, large }: { className?: string; large?: boolean }) {
   const { model, horizon, setHorizon } = useApp();
   if (!model.daily) return null;
   return (
     <div className={cn("inline-flex rounded-full border border-line bg-card p-0.5 shadow-card", className)} role="group" aria-label="Outlook horizon">
       {([5, 30] as const).map((h) => (
         <button key={h} type="button" onClick={() => setHorizon(h)} aria-pressed={horizon === h}
-          className={horizon === h ? "rounded-full bg-ink px-2.5 py-1 text-[11px] font-semibold text-canvas" : "rounded-full px-2.5 py-1 text-[11px] font-semibold text-mute hover:text-ink"}>
+          className={cn("rounded-full font-semibold transition-colors", large ? "px-3.5 py-1.5 text-[12.5px]" : "px-2.5 py-1 text-[11px]", horizon === h ? "bg-ink text-canvas" : "text-mute hover:text-ink")}>
           Next {h} Days
         </button>
       ))}
@@ -318,8 +318,8 @@ function SalesPreventionEvidence() {
   const f = storyFacts(model, month);
   const ro = f.riskyOrders;
   const iv = f.interventions.sales;
-  const factors = riskFactors(f);
-  const example = model.story.exampleOrder;
+  const factors = riskFactors(f, true);
+  const example = f.exampleOrder;
   if (ro.orders === null) return <Unavailable text="The outlook is not available in the workbook." />;
   return (
     <div className="space-y-4">
@@ -387,11 +387,11 @@ function HighValueEvidence() {
         })}
       </div>
       <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
-        {model.story.exampleInstall.length > 0 && (
+        {f.exampleInstall.length > 0 && (
           <div className="rounded-2xl border border-teal/25 bg-card p-4">
             <div className="mb-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-teal">Readiness status: example order</div>
             <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[12.5px] sm:grid-cols-4">
-              {model.story.exampleInstall.map((e) => (
+              {f.exampleInstall.map((e) => (
                 <div key={e.label}>
                   <dt className="text-mute">{e.label}</dt>
                   <dd className={/recommended/i.test(e.label) ? "font-semibold text-teal" : "font-semibold"}>{e.value}</dd>

@@ -81,17 +81,21 @@ export interface Recommendation {
 
 /** Visual a player scene shows. Each variant is drawn by `components/story/SceneVisual.tsx`. */
 export type SceneVisual =
-  | { kind: "map"; zoom: string | null; states: { name: string; value: number | null; label: string; severity: "critical" | "warning" | "normal" }[] }
+  | { kind: "map"; zoom: string | null; states: { name: string; value: number | null; label: string; severity: MapBand }[] }
   | { kind: "channels"; state: string; rows: { channel: string; rate: number | null; sales: number | null; outlier: boolean }[]; normal: [number, number] | null }
-  | { kind: "agencies"; rows: { agency: string; channel: string; baseline: number | null; rate: number | null; gap: number | null; weak: boolean }[]; cohort: { agency: string; cohort: string; salesShare: number | null; cancelShare: number | null; rate: number | null } | null }
+  | { kind: "agencies"; rows: { agency: string; channel: string; baseline: number | null; rate: number | null; gap: number | null; focus: string; cohort: { cohort: string; salesShare: number | null; cancelShare: number | null; rate: number | null } | null }[] }
   | { kind: "sales-signals"; signals: { label: string; value: number | null }[]; example: { label: string; value: string }[]; action: string; stats: { orders: number | null; projected: number | null; saves: number | null; month: string } | null }
   | { kind: "split"; total: number | null; parts: { kind: string; label: string; cancels: number | null; share: number | null; emphasis: boolean }[]; signal: number | null }
   | { kind: "timing"; rows: { label: string; pre: number | null; on: number | null; post: number | null; emphasis: boolean }[]; drivers: { label: string; count: number | null; mom: number | null }[] }
   | { kind: "journey"; nodes: { label: string; severity: "neutral" | "warning" | "critical"; badge?: string }[] }
-  | { kind: "install"; segments: { label: string; orders: number | null; action: string; signal: string }[]; total: number | null; example: { label: string; value: string }[]; saves: number | null }
-  | { kind: "contact"; funnel: { label: string; value: number | null }[]; rules: { label: string; value: string }[] }
+  | { kind: "install"; segments: { label: string; orders: number | null; action: string; signal: string }[]; total: number | null; example: { label: string; value: string }[]; saves: number | null; period: string }
+  | { kind: "contact"; funnel: { label: string; value: number | null }[]; rules: { label: string; value: string }[]; period: string }
   | { kind: "outlook"; steps: { label: string; rate: number | null; mode: StoryMode }[]; saves: number | null }
   | { kind: "recommendations"; items: Recommendation[]; total: number | null };
+
+/** Map colour band of a state by its cancellation change: under 5%, 5 to 10%, 10 to 15%, 15% and above. */
+export type MapBand = "low" | "mild" | "elevated" | "high";
+export const mapBand = (v: number | null): MapBand => (v === null || v < 0.05 ? "low" : v < 0.1 ? "mild" : v < 0.15 ? "elevated" : "high");
 
 /** Where the narration sits relative to the visual. Varies by scene so the briefing does not read as one column. */
 export type SceneLayout = "top" | "bottom" | "left" | "right";
@@ -106,6 +110,8 @@ export interface StoryScene {
   /** Narration with `**bold**` figures. */
   body: string;
   visual: SceneVisual;
+  /** Larger chapter label for the scenes that open a chapter of the story (portfolio and the two problems). */
+  emphasis?: boolean;
   /** Autoplay dwell time in milliseconds. */
   duration: number;
 }

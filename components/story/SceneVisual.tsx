@@ -7,6 +7,7 @@ import { cn } from "../ui/primitives";
 import { Donut } from "../charts/Donut";
 import { Gauge } from "../charts/Gauge";
 import { ChannelIcon } from "./ChannelIcon";
+import { BAND } from "./USStoryMap";
 import type { SceneVisual } from "@/lib/story/types";
 import { fmtInt, fmtPct, fmtPct0, fmtPp, fmtSignedPct } from "@/lib/format";
 
@@ -65,10 +66,10 @@ const rise = (i: number, base = 0.2) => ({
   transition: { duration: 0.55, ease, delay: base + i * 0.08 },
 });
 
-export function SceneVisualView({ visual, actions }: { visual: SceneVisual; actions?: ReactNode }) {
+export function SceneVisualView({ visual, actions, onSelectState }: { visual: SceneVisual; actions?: ReactNode; onSelectState?: (state: string) => void }) {
   switch (visual.kind) {
     case "map":
-      return visual.zoom ? <FocusCallout states={visual.states} zoom={visual.zoom} /> : <MapLegend states={visual.states} />;
+      return visual.zoom ? <FocusCallout states={visual.states} zoom={visual.zoom} onSelect={onSelectState} /> : <MapLegend states={visual.states} onSelect={onSelectState} />;
     case "channels": {
       const max = Math.max(...visual.rows.map((r) => r.rate ?? 0)) * 1.08;
       return (
@@ -90,56 +91,48 @@ export function SceneVisualView({ visual, actions }: { visual: SceneVisual; acti
       );
     }
     case "agencies": {
-      const max = Math.max(...visual.rows.map((r) => r.rate ?? 0)) * 1.08;
-      const c = visual.cohort;
+      const max = Math.max(...visual.rows.map((r) => Math.max(r.rate ?? 0, r.baseline ?? 0))) * 1.08;
       return (
-        <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
-          <Panel title="Agency cancel rate vs its own history">
-            <div className="space-y-3">
-              {visual.rows.map((r, i) => (
-                <motion.div key={r.agency} {...rise(i, 0.15)} className="grid grid-cols-[minmax(130px,180px)_1fr_96px] items-center gap-3">
-                  <div className={cn("flex items-center gap-2 truncate text-[13.5px]", r.weak ? "font-semibold text-ink" : "text-mute")}>
-                    <ChannelIcon channel={r.channel} className="size-3.5 shrink-0 opacity-70" />{r.agency}
-                  </div>
-                  <div className="relative">
-                    <Bar value={r.rate} max={max} color={r.weak ? RED : MUTED} delay={0.25 + i * 0.06} height={r.weak ? 12 : 8} />
-                    {r.baseline !== null && (
-                      <motion.span
-                        aria-hidden
-                        className="absolute -top-1 h-[calc(100%+8px)] w-[2px] rounded bg-ink"
-                        style={{ left: `${(r.baseline / max) * 100}%` }}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 0.85 }}
-                        transition={{ delay: 1 + i * 0.05 }}
-                      />
-                    )}
-                  </div>
-                  <div className="num text-right text-[13.5px]">
-                    <span className={r.weak ? "font-semibold text-ink" : "text-mute"}>{fmtPct0(r.rate)}</span>{" "}
-                    {r.gap !== null && <span className={cn("text-[11.5px] font-bold", r.weak ? "text-bad" : "text-soft")}>{fmtPp(r.gap)}</span>}
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-            <div className="mt-4 flex items-center gap-2 text-[12px] text-mute"><span className="h-3 w-[2px] rounded bg-ink" /> Own historical average</div>
-          </Panel>
-          {c && (
-            <Panel title={c.agency}>
-              <div className="text-[14px] font-semibold text-ink">{c.cohort}</div>
-              <div className="mt-5 flex items-center justify-center gap-6">
-                {[
-                  { label: "of sales", v: c.salesShare, color: MUTED },
-                  { label: "of cancellations", v: c.cancelShare, color: RED },
-                ].map((x, i) => (
-                  <motion.div key={x.label} {...rise(i, 1)} className="text-center">
-                    <Donut size={124} thickness={14} data={[{ name: x.label, value: x.v ?? 0, color: x.color }, { name: "Rest", value: 1 - (x.v ?? 0), color: "var(--color-line-2)" }]} center={<span className="num-display text-[26px] leading-none">{fmtPct0(x.v)}</span>} />
-                    <div className="mt-2 text-[12.5px] text-mute">{x.label}</div>
-                  </motion.div>
-                ))}
+        <div className="grid gap-4 md:grid-cols-3">
+          {visual.rows.map((r, i) => (
+            <motion.div key={r.agency} {...rise(i, 0.15)} className="flex flex-col rounded-[24px] border border-line/80 bg-card p-5 shadow-card dark:border-white/[0.06]">
+              <div className="flex items-start justify-between gap-2">
+                <div className="text-[16px] font-semibold text-ink">{r.agency}</div>
+                <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-subtle px-2.5 py-1 text-[11.5px] font-semibold text-ink-2">
+                  <ChannelIcon channel={r.channel} className="size-3 shrink-0" />{r.channel}
+                </span>
               </div>
-              <div className="mt-4 rounded-2xl bg-bad-soft px-4 py-2.5 text-center text-[13px] font-semibold text-bad">Cancel rate {fmtPct(c.rate)}</div>
-            </Panel>
-          )}
+              <div className="mt-4 flex items-baseline gap-2">
+                <span className="num-display text-[34px] leading-none text-bad">{fmtPct0(r.rate)}</span>
+                <span className="text-[12.5px] text-mute">cancel rate, <span className="num font-semibold text-bad">{fmtPp(r.gap)}</span> vs <span className="num">{fmtPct0(r.baseline)}</span> history</span>
+              </div>
+              <div className="relative mt-2.5">
+                <Bar value={r.rate} max={max} color={RED} delay={0.3 + i * 0.1} height={10} />
+                {r.baseline !== null && (
+                  <motion.span aria-hidden className="absolute -top-1 h-[calc(100%+8px)] w-[2px] rounded bg-ink" style={{ left: `${(r.baseline / max) * 100}%` }}
+                    initial={{ opacity: 0 }} animate={{ opacity: 0.85 }} transition={{ delay: 1 + i * 0.1 }} />
+                )}
+              </div>
+              {r.cohort && (
+                <div className="mt-5 border-t border-line-2 pt-4">
+                  <div className="text-[13px] font-semibold text-ink">{r.cohort.cohort}</div>
+                  <div className="mt-3 flex items-center justify-around gap-3">
+                    {[
+                      { label: "of sales", v: r.cohort.salesShare, color: MUTED },
+                      { label: "of cancellations", v: r.cohort.cancelShare, color: RED },
+                    ].map((x, j) => (
+                      <motion.div key={x.label} {...rise(j, 0.8 + i * 0.15)} className="text-center">
+                        <Donut size={84} thickness={10} data={[{ name: x.label, value: x.v ?? 0, color: x.color }, { name: "Rest", value: 1 - (x.v ?? 0), color: "var(--color-line-2)" }]} center={<span className="num-display text-[18px] leading-none">{fmtPct0(x.v)}</span>} />
+                        <div className="mt-1.5 text-[11.5px] text-mute">{x.label}</div>
+                      </motion.div>
+                    ))}
+                  </div>
+                  <div className="mt-3 rounded-xl bg-bad-soft px-3 py-1.5 text-center text-[12px] font-semibold text-bad">Their cancel rate {fmtPct(r.cohort.rate)}</div>
+                </div>
+              )}
+              <div className="mt-auto pt-4 text-[12.5px] leading-snug text-ink-2"><span className="font-semibold text-teal">Coach:</span> {r.focus}</div>
+            </motion.div>
+          ))}
         </div>
       );
     }
@@ -304,7 +297,7 @@ export function SceneVisualView({ visual, actions }: { visual: SceneVisual; acti
             {visual.saves !== null && (
               <motion.div {...rise(0, 0.9)} className="flex flex-col justify-center rounded-[22px] bg-teal px-7 py-5 text-white dark:text-[#06201f]">
                 <div className="num-display text-[44px] leading-none">{fmtInt(visual.saves)}</div>
-                <div className="mt-1 text-[13px] font-semibold">potential saves</div>
+                <div className="mt-1 text-[13px] font-semibold">potential saves, {visual.period}</div>
               </motion.div>
             )}
           </div>
@@ -314,7 +307,7 @@ export function SceneVisualView({ visual, actions }: { visual: SceneVisual; acti
       const max = Math.max(...visual.funnel.map((f) => f.value ?? 0));
       return (
         <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
-          <Panel title="Contact risk population" tone="preventive">
+          <Panel title={`Contact risk population, ${visual.period}`} tone="preventive">
             <div className="space-y-5">
               {visual.funnel.map((f, i) => (
                 <motion.div key={f.label} {...rise(i)}>
@@ -404,32 +397,45 @@ export function SceneVisualView({ visual, actions }: { visual: SceneVisual; acti
   }
 }
 
-function MapLegend({ states }: { states: Extract<SceneVisual, { kind: "map" }>["states"] }) {
+type MapRows = Extract<SceneVisual, { kind: "map" }>["states"];
+
+/** State chips coloured by band (each opens the state's analysis) and the colour key. */
+function MapLegend({ states, onSelect }: { states: MapRows; onSelect?: (state: string) => void }) {
   const rows = [...states].sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
   return (
     <div>
       <div className="flex flex-wrap justify-center gap-2">
         {rows.map((s, i) => (
-          <motion.div key={s.name} {...rise(i, 0.9)} className="flex items-center gap-2 rounded-full border border-line/80 bg-card px-3.5 py-2 text-[13px] shadow-card dark:border-white/[0.06]">
-            <span className="text-mute">{s.name}</span>
-            <span className={cn("num font-semibold", s.severity === "critical" ? "text-bad" : "text-ink")}>{s.label}</span>
-          </motion.div>
+          <motion.button key={s.name} type="button" {...rise(i, 0.9)} onClick={() => onSelect?.(s.name)} disabled={!onSelect}
+            title={onSelect ? `Open ${s.name} analysis` : undefined}
+            className="flex items-center gap-2 rounded-full px-3.5 py-2 text-[13px] shadow-card ring-1 ring-black/10 transition-transform enabled:hover:-translate-y-0.5"
+            style={{ background: BAND[s.severity].fill, color: BAND[s.severity].text }}>
+            <span className="font-medium">{s.name}</span>
+            <span className="num font-bold">{s.label}</span>
+          </motion.button>
         ))}
       </div>
-      <div className="mt-2 text-center text-[11.5px] text-mute">Cancellation change vs the previous period</div>
+      <motion.div {...rise(rows.length, 0.9)} className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[11.5px] text-mute">
+        <span>Cancellation change vs the previous period{onSelect ? " (select a state for its analysis)" : ""}</span>
+        {Object.values(BAND).map((b) => (
+          <span key={b.label} className="inline-flex items-center gap-1.5"><span className="size-3 rounded-[4px] ring-1 ring-black/10" style={{ background: b.fill }} />{b.label}</span>
+        ))}
+      </motion.div>
     </div>
   );
 }
 
-function FocusCallout({ states, zoom }: { states: Extract<SceneVisual, { kind: "map" }>["states"]; zoom: string }) {
+function FocusCallout({ states, zoom, onSelect }: { states: MapRows; zoom: string; onSelect?: (state: string) => void }) {
   const s = states.find((x) => x.name === zoom);
   if (!s) return null;
+  const b = BAND[s.severity];
   return (
-    <motion.div {...rise(0, 2.2)} className="inline-flex items-center gap-3 rounded-full border border-line/80 bg-card py-2 pl-2 pr-5 shadow-card dark:border-white/[0.06]">
-      <span className="grid size-10 place-items-center rounded-full bg-bad text-[13px] font-bold text-white">{zoom.split(" ").map((w) => w[0]).join("")}</span>
+    <motion.button type="button" {...rise(0, 2.2)} onClick={() => onSelect?.(zoom)} disabled={!onSelect} title={onSelect ? `Open ${zoom} analysis` : undefined}
+      className="inline-flex items-center gap-3 rounded-full border border-line/80 bg-card py-2 pl-2 pr-5 shadow-card transition-transform enabled:hover:-translate-y-0.5 dark:border-white/[0.06]">
+      <span className="grid size-10 place-items-center rounded-full text-[13px] font-bold" style={{ background: b.fill, color: b.text }}>{zoom.split(" ").map((w) => w[0]).join("")}</span>
       <span className="text-[14px] font-semibold text-ink">{zoom}</span>
-      <span className="num-display text-[26px] leading-none text-bad">{s.label}</span>
-    </motion.div>
+      <span className="num-display text-[26px] leading-none" style={{ color: s.severity === "high" ? "var(--color-bad)" : undefined }}>{s.label}</span>
+    </motion.button>
   );
 }
 

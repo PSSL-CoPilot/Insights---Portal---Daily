@@ -92,11 +92,13 @@ export function Layout({ layout, text, visual, map }: { layout: SceneLayout; tex
   );
 }
 
-export function SceneText({ scene, layout, wide }: { scene: StoryScene; layout: SceneLayout; wide: boolean }) {
+/** `aside`: a control shown beside the chapter label (the player's 5 / 30 days switch). */
+export function SceneText({ scene, layout, wide, aside }: { scene: StoryScene; layout: SceneLayout; wide: boolean; aside?: ReactNode }) {
   const chip = (
-    <motion.div variants={textV} custom={layout} className="flex items-center gap-2.5">
-      <span className={cn("h-[3px] w-8 rounded-full", scene.mode === "observed" ? "bs-gradient" : "bg-teal")} />
-      <span className={cn("text-[12px] font-semibold uppercase tracking-[0.16em]", scene.mode === "observed" ? "text-brand-2" : "text-teal")}>{scene.kicker}</span>
+    <motion.div variants={textV} custom={layout} className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+      <span className={cn("rounded-full", scene.emphasis ? "h-1 w-12" : "h-[3px] w-8", scene.mode === "observed" ? "bs-gradient" : "bg-teal")} />
+      <span className={cn("font-semibold uppercase", scene.emphasis ? "text-[17px] font-bold tracking-[0.14em] sm:text-[21px]" : "text-[12px] tracking-[0.16em]", scene.mode === "observed" ? "text-brand-2" : "text-teal")}>{scene.kicker}</span>
+      {aside}
     </motion.div>
   );
   const title = (

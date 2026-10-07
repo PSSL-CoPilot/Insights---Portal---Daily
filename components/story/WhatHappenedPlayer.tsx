@@ -14,10 +14,20 @@ import type { MonthKey } from "@/lib/data/types";
 import { monthLabel } from "@/lib/format";
 import { analysisHref } from "@/lib/story/links";
 import { DownloadSlidesButton } from "./SlideExport";
+import { HorizonToggle } from "./EvidencePanel";
+import { NarrativeBlock } from "./NarrativeList";
+import { useApp } from "../AppContext";
+import { Modal } from "../ui/Modal";
+import { StateDrilldown } from "../drilldown/StateDrilldown";
+import { AgencyTable } from "../analysis/AgencyViews";
+import { buildSelectionNarrative } from "@/lib/story/analysis";
+import { NO_SELECTION, patchSelection, type SelectionPatch } from "@/lib/story/links";
 import { EDGE_FADE, Layout, MAP_FRAME, SceneText, frameV, mapStateFor, visualV } from "./SceneFrame";
 
 const ease = [0.22, 0.9, 0.24, 1] as const;
 const NARROW_FRAME: MapFrame = { x0: 0.03, x1: 0.97, y0: 0.42, y1: 0.86 };
+/** Forward-looking scenes that carry the Next 5 / Next 30 days switch. */
+const HORIZON_SCENES = new Set(["sales-prevention", "high-value", "contact-prevention"]);
 
 function useWide() {
   const [wide, setWide] = useState(true);
@@ -42,7 +52,12 @@ export function WhatHappenedPlayer({
   scenes, month, onClose, onTakeAction,
 }: { scenes: StoryScene[]; month: MonthKey; onClose: () => void; onTakeAction: () => void }) {
   const router = useRouter();
+  const { horizon } = useApp();
   const [index, setIndex] = useState(0);
+  // A state picked on the map: its Detailed Analysis opens in a dialog and the story pauses.
+  const [openState, setOpenState] = useState<string | null>(null);
+  const selectState = useCallback((s: string) => { setPlaying(false); setOpenState(s); }, []);
+  const closeState = useCallback(() => setOpenState(null), []);
   const [playing, setPlaying] = useState(true);
   const [run, setRun] = useState(0);
   const progress = useMotionValue(0);
@@ -105,6 +120,7 @@ export function WhatHappenedPlayer({
     document.body.style.overflow = "hidden";
     playBtn.current?.focus();
     const onKey = (e: KeyboardEvent) => {
+      if (openState) return; // the state dialog handles its own keys (Escape closes it, not the story)
       const tag = (e.target as HTMLElement)?.tagName;
       if (e.key === "Escape") return onClose();
       if (e.key === "Tab" && root.current) {
@@ -127,7 +143,7 @@ export function WhatHappenedPlayer({
       document.body.style.overflow = prevOverflow;
       prevFocus?.focus?.();
     };
-  }, [onClose, toggle, next, prevScene, replay]);
+  }, [onClose, toggle, next, prevScene, replay, openState]);
 
   const focusState = mapScenes.map((x) => (x.s.visual.kind === "map" ? x.s.visual.zoom : null)).find(Boolean) ?? null;
   const evidenceHref = focusState ? analysisHref({ state: focusState }, month) : `/cancellations?month=${month}`;
@@ -147,11 +163,15 @@ export function WhatHappenedPlayer({
 
   const l = scene.layout;
   const text = (
-    <SceneText scene={scene} layout={l} wide={l === "top" || l === "bottom"} />
+    <div className="pointer-events-auto">
+      <SceneText scene={scene} layout={l} wide={l === "top" || l === "bottom"}
+        aside={HORIZON_SCENES.has(scene.id) ? <span onClickCapture={() => setPlaying(false)}><HorizonToggle large /></span> : undefined} />
+    </div>
   );
   const visual = (
-    <motion.div variants={visualV} className={cn("min-h-0 w-full", isMapScene && (l === "top" ? "self-end" : l === "right" ? "self-end" : ""))}>
-      <SceneVisualView visual={scene.visual} actions={last ? endActions : undefined} />
+    <motion.div variants={visualV} className={cn("pointer-events-auto min-h-0 w-full", isMapScene && (l === "top" ? "self-end" : l === "right" ? "self-end" : ""))}>
+      {/* Re-keyed on the horizon so the figures replay their entrance when the switch changes them. */}
+      <SceneVisualView key={horizon} visual={scene.visual} actions={last ? endActions : undefined} onSelectState={selectState} />
     </motion.div>
   );
 
@@ -162,7 +182,7 @@ export function WhatHappenedPlayer({
         role="dialog"
         aria-modal="true"
         aria-label={`What happened, ${monthLabel(month)}`}
-        className="fixed inset-0 z-[60] flex flex-col overflow-hidden bg-canvas text-ink"
+        className="fixed inset-0 z-[60] flex flex-col overflow-clip bg-canvas text-ink"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.45, ease }}
@@ -205,16 +225,17 @@ export function WhatHappenedPlayer({
         <div className="relative min-h-0 flex-1">
           <motion.div
             aria-hidden={!isMapScene}
-            className="pointer-events-none absolute inset-0"
+            className={cn("absolute inset-0", !isMapScene && "pointer-events-none")}
             style={{ maskImage: EDGE_FADE, WebkitMaskImage: EDGE_FADE, maskComposite: "intersect", WebkitMaskComposite: "source-in" }}
             initial={false}
             animate={{ opacity: mapOpacity }}
             transition={{ duration: 0.9, ease }}
           >
-            <USStoryMap key={run} states={mapStates} zoom={zoom} frame={frame} showLabels={isMapScene} />
+            <USStoryMap key={run} states={mapStates} zoom={zoom} frame={frame} showLabels={isMapScene} onSelect={isMapScene ? selectState : undefined} />
           </motion.div>
 
-          <div className="relative h-full">
+          {/* On map scenes only the narration and visual take clicks; the rest reaches the map underneath. */}
+          <div className={cn("relative h-full", isMapScene && "pointer-events-none")}>
             <AnimatePresence custom={l}>
               <motion.div
                 key={`${scene.id}-${run}`}
@@ -223,7 +244,7 @@ export function WhatHappenedPlayer({
                 initial="initial"
                 animate="enter"
                 exit="exit"
-                className="absolute inset-0 overflow-y-auto px-5 pb-4 sm:px-10 lg:overflow-hidden"
+                className={cn("absolute inset-0 overflow-y-auto px-5 pb-4 sm:px-10 lg:overflow-hidden", isMapScene && "pointer-events-none")}
               >
                 <Layout layout={l} text={text} visual={visual} map={isMapScene} />
               </motion.div>
@@ -260,9 +281,44 @@ export function WhatHappenedPlayer({
             <div className="hidden text-[12px] text-mute sm:block">Space play or pause · Arrows move between scenes · Esc exits</div>
           </div>
         </div>
+
+        <Modal
+          open={!!openState}
+          onClose={closeState}
+          header={
+            <div className="flex flex-wrap items-end justify-between gap-3 px-6 py-5 pr-16">
+              <div>
+                <div className="text-[11.5px] font-semibold uppercase tracking-[0.12em] text-mute">Detailed Analysis · {monthLabel(month)}</div>
+                <div className="mt-1 text-[24px] font-semibold tracking-tight">{openState}</div>
+              </div>
+              {openState && (
+                <button onClick={() => { onClose(); router.push(analysisHref({ state: openState }, month)); }} className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-card px-4 text-[13px] font-semibold text-ink shadow-card transition hover:shadow-pop">
+                  Open in Detailed Analysis <ArrowRight className="size-4" />
+                </button>
+              )}
+            </div>
+          }
+        >
+          {openState && <StateAnalysis state={openState} month={month} go={(href) => { onClose(); router.push(href); }} />}
+        </Modal>
       </motion.div>
     </MotionConfig>,
     document.body,
+  );
+}
+
+/** The same insights and detail the Detailed Analysis tab shows for one state. Links inside leave the story. */
+function StateAnalysis({ state, month, go }: { state: string; month: MonthKey; go: (href: string) => void }) {
+  const { model } = useApp();
+  const sel = useMemo(() => ({ ...NO_SELECTION, states: [state] }), [state]);
+  const points = useMemo(() => buildSelectionNarrative(model, month, sel), [model, month, sel]);
+  const select = (p: SelectionPatch) => go(analysisHref(patchSelection(sel, p), month));
+  return (
+    <div className="space-y-6">
+      <NarrativeBlock points={points} resetKey={`${state}|${month}`} eyebrow={state} />
+      <StateDrilldown scope={state} />
+      {model.story.focusState === state && <AgencyTable agencies={model.story.agencies} select={select} />}
+    </div>
   );
 }
 

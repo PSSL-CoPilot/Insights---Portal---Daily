@@ -8,8 +8,8 @@ import type { DataModel, MonthKey } from "../data/types";
 import { getSnapshot, stateRows } from "../data/metrics";
 import { fmtInt, fmtSignedPct, monthName, monthShort } from "../format";
 import { riskFactors, storyFacts } from "./facts";
-import { buildExecutiveNarrative, buildRecommendations } from "./narrative";
-import type { NarrativePoint, SceneLayout, SceneVisual, StoryModel, StoryScene } from "./types";
+import { agencyCoaching, buildExecutiveNarrative, buildRecommendations } from "./narrative";
+import { mapBand, type NarrativePoint, type SceneLayout, type SceneVisual, type StoryModel, type StoryScene } from "./types";
 /** Sales quality risk factors used to score orders (price or offer mismatch is caught by independent confirmation). */
 /** Narration placement per scene: a deliberate mix so text moves around the visual. */
 const LAYOUT: Record<string, SceneLayout> = {
@@ -31,27 +31,24 @@ export function buildStoryScenes(model: DataModel, month: MonthKey): StoryScene[
   const h = f.focus;
   const FM = f.forecast.month ? monthName(f.forecast.month) : "Next month";
 
-  // The footprint first appears neutral; the focus state turns red when the story reaches it.
-  const mapStates = (reveal: boolean): Extract<SceneVisual, { kind: "map" }>["states"] =>
-    rows.map((r) => ({
-      name: r.state, value: r.cancelsMoM, label: fmtSignedPct(r.cancelsMoM),
-      severity: reveal && h?.state === r.state ? "critical" : reveal && (r.cancelsMoM ?? 0) > 0.1 ? "warning" : "normal",
-    }));
+  // Every state is coloured by its cancellation change from the first scene, so the focus state stands out in red.
+  const mapStates = (): Extract<SceneVisual, { kind: "map" }>["states"] =>
+    rows.map((r) => ({ name: r.state, value: r.cancelsMoM, label: fmtSignedPct(r.cancelsMoM), severity: mapBand(r.cancelsMoM) }));
 
   // 1. Portfolio: the quantified headline, then the plain explanation.
   add({
-    id: "portfolio", mode: "observed", kicker: "Portfolio", duration: 10000,
+    id: "portfolio", mode: "observed", kicker: "Portfolio", emphasis: true, duration: 10000,
     title: ex.headline,
     body: [plain(pt.get("portfolio")), ex.subhead].filter(Boolean).join(" "),
-    visual: { kind: "map", zoom: null, states: mapStates(!h) },
+    visual: { kind: "map", zoom: null, states: mapStates() },
   });
   if (!h) return scenes;
 
   // Day-wise: when the signals first appeared.
-  if (pt.get("detection")) add({ id: "detection", mode: "observed", kicker: "When it started", duration: 10000, title: "Daily tracking caught it early", body: plain(pt.get("detection")), visual: { kind: "map", zoom: null, states: mapStates(true) } });
+  if (pt.get("detection")) add({ id: "detection", mode: "observed", kicker: "When it started", duration: 10000, title: "Daily tracking caught it early", body: plain(pt.get("detection")), visual: { kind: "map", zoom: null, states: mapStates() } });
 
   // 2. Where
-  add({ id: "geography", mode: "observed", kicker: "Where", duration: 10000, title: "One state explains the increase", body: plain(pt.get("geography")), visual: { kind: "map", zoom: h.state, states: mapStates(true) } });
+  add({ id: "geography", mode: "observed", kicker: "Where", duration: 10000, title: "One state explains the increase", body: plain(pt.get("geography")), visual: { kind: "map", zoom: h.state, states: mapStates() } });
 
   // 3. Which channels
   if (f.outlierChannels.length) {
@@ -64,32 +61,36 @@ export function buildStoryScenes(model: DataModel, month: MonthKey): StoryScene[
     });
   }
 
-  // 4. Problem 1: sales quality
+  // 4. Problem 1: sales quality. One card per weak agency (Alpha, Beta, Gamma): channel, rate vs history, the rep cohort behind it, coaching.
   if (pt.has("sales-quality")) {
-    const c = f.cohort;
+    // The cohort whose share of cancellations most exceeds its share of sales.
+    const worst = (agency: string) => model.story.cohorts.filter((c) => c.agency === agency && (c.salesShare ?? 0) > 0)
+      .sort((x, y) => ((y.cancelShare ?? 0) - (y.salesShare ?? 0)) - ((x.cancelShare ?? 0) - (x.salesShare ?? 0)))[0] ?? null;
     add({
-      id: "sales-quality", mode: "observed", kicker: "Problem 1: sales quality", duration: 12000,
+      id: "sales-quality", mode: "observed", kicker: "Problem 1: sales quality", emphasis: true, duration: 12000,
       title: "A few agencies, and mostly their new reps",
       body: plain(pt.get("sales-quality")),
       visual: {
         kind: "agencies",
-        rows: model.story.agencies.map((a) => ({ agency: a.agency, channel: a.channel, baseline: a.baseline, rate: a.cancelRate, gap: a.gap, weak: f.weakAgencies.includes(a) })),
-        cohort: c ? { agency: c.agency, cohort: c.cohort, salesShare: c.salesShare, cancelShare: c.cancelShare, rate: c.rate } : null,
+        rows: [...f.weakAgencies].sort((a, b) => a.agency.localeCompare(b.agency)).map((a) => {
+          const c = worst(a.agency);
+          return { agency: a.agency, channel: a.channel, baseline: a.baseline, rate: a.cancelRate, gap: a.gap, focus: agencyCoaching(a).focus, cohort: c ? { cohort: c.cohort, salesShare: c.salesShare, cancelShare: c.cancelShare, rate: c.rate } : null };
+        }),
       },
     });
   }
 
   // 5. Prevention for problem 1, straight after it.
   if (pt.has("sales-prevention")) {
-    const sig = riskFactors(f).map((x) => ({ label: x.label, value: x.v }));
+    const sig = riskFactors(f, true).map((x) => ({ label: x.label, value: x.v }));
     add({
       id: "sales-prevention", mode: "preventive", kicker: pt.get("sales-prevention")!.label, duration: 13000,
       title: "Score risky orders before they cancel",
       body: plain(pt.get("sales-prevention")),
       visual: {
         kind: "sales-signals", signals: sig,
-        example: model.story.exampleOrder.filter((x) => !/recommended action/i.test(x.label)),
-        action: model.story.exampleOrder.find((x) => /recommended action/i.test(x.label))?.value ?? f.interventions.sales?.action ?? "",
+        example: f.exampleOrder.filter((x) => !/recommended action/i.test(x.label)),
+        action: f.exampleOrder.find((x) => /recommended action/i.test(x.label))?.value ?? f.interventions.sales?.action ?? "",
         stats: { orders: f.riskyOrders.orders, projected: f.riskyOrders.projected, saves: f.interventions.sales?.saves ?? null, month: FM },
       },
     });
@@ -99,7 +100,7 @@ export function buildStoryScenes(model: DataModel, month: MonthKey): StoryScene[
   const dr = f.drivers;
   if (pt.has("contact") && dr.sales && dr.contact) {
     add({
-      id: "contact", mode: "observed", kicker: "Problem 2: customer contact", duration: 12000,
+      id: "contact", mode: "observed", kicker: "Problem 2: customer contact", emphasis: true, duration: 12000,
       title: "The bigger problem: customers we could not confirm",
       body: plain(pt.get("contact")),
       visual: {
@@ -161,7 +162,7 @@ export function buildStoryScenes(model: DataModel, month: MonthKey): StoryScene[
       visual: {
         kind: "install", total: f.highValue.total, saves: f.interventions.install?.saves ?? null,
         segments: segs.map((s) => ({ label: s.segment, orders: s.orders, action: s.action, signal: s.signal })),
-        example: model.story.exampleInstall,
+        example: f.exampleInstall, period: FM.toLowerCase(),
       },
     });
   }
@@ -172,8 +173,8 @@ export function buildStoryScenes(model: DataModel, month: MonthKey): StoryScene[
     add({
       id: "contact-prevention", mode: "preventive", kicker: `Prevention (${FM.toLowerCase()}): customer contact`, duration: 11000,
       title: "Rescue the customer-contact journey",
-      body: `**${fmtInt(cr.orders)}** ${h.state} orders carry contact risk; about **${fmtInt(cr.projected)}** would cancel without help. Confirm, rebook, call and route by cause: about **${fmtInt(cr.protectable)}** cancellations avoided.`,
-      visual: { kind: "contact", funnel: model.story.contactRisk.map((r) => ({ label: r.label, value: r.value })), rules: model.story.contactRules },
+      body: `Over the ${FM.toLowerCase()}, **${fmtInt(cr.orders)}** ${h.state} orders carry contact risk; about **${fmtInt(cr.projected)}** would cancel without help. Confirm, rebook, call and route by cause: about **${fmtInt(cr.protectable)}** customers protected.`,
+      visual: { kind: "contact", funnel: model.story.contactRisk.map((r) => ({ label: r.label, value: r.value })), rules: model.story.contactRules, period: FM.toLowerCase() },
     });
   }
 
