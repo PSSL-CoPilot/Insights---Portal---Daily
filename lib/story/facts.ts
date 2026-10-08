@@ -226,7 +226,8 @@ export function storyFacts(model: DataModel, month: MonthKey): StoryFacts {
     },
     drivers,
     reclassMoved: coRow?.adjusted != null && coRow.recorded != null ? coRow.adjusted - coRow.recorded : null,
-    lateDrivers: reasonStats(model, month, focus?.state ?? null).filter((r) => r.lateStage && (r.mom ?? 0) > 0.25).sort((x, y) => (y.mom ?? 0) - (x.mom ?? 0)),
+    // Any growth counts: short periods move less (+15% to +25% over 5 days) than 30 days do (above +100%).
+    lateDrivers: reasonStats(model, month, focus?.state ?? null).filter((r) => r.lateStage && (r.mom ?? 0) > 0).sort((x, y) => (y.mom ?? 0) - (x.mom ?? 0)),
     forecast: hasStory
       ? { month: st.forecastMonth, baseline: view("baseline"), prevActual: model.daily ? portPrev?.cancelRate ?? null : prev ? view("actual", prev) : null, actual: model.daily ? port.cancelRate : view("actual", month), noAction: view("noAction"), intervention: view("intervention") }
       : { month: null, baseline: null, prevActual: null, actual: null, noAction: null, intervention: null },
